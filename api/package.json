@@ -1,0 +1,22 @@
+{
+  "name": "asr-graph-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "node scripts/apply-migrations.mjs",
+    "start": "npm run migrate && node src/server.mjs",
+    "dev": "npm run migrate && node --watch src/server.mjs",
+    "vitals:start": "node scripts/vitalsigns.mjs start",
+    "vitals:status": "node scripts/vitalsigns.mjs status",
+    "vitals:stop": "node scripts/vitalsigns.mjs stop",
+    "vitals:force": "node scripts/vitalsigns.mjs force"
+  },
+  "dependencies": {
+    "@rescor/core-db": "file:../../core.rescor.net/packages/core-db",
+    "@rescor/core-utils": "file:../../core.rescor.net/packages/core-utils",
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
