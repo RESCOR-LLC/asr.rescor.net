@@ -22,7 +22,8 @@ npm run migrate
 npm run start
 ```
 
-`npm run start` and `npm run dev` both run migrations automatically before boot.
+`npm run start` now routes through VitalSigns and performs an atomic start (migrations + detached API boot + readiness checks).
+`npm run dev` still runs migrations then starts watch mode directly.
 
 ## Migrations
 
@@ -49,15 +50,28 @@ npm run vitals:status
 npm run vitals:status -- --verbose
 npm run vitals:stop
 npm run vitals:force
+npm run vitals:restart
 ```
 
 `vitals:start` runs migrations before spawning the API process.
 `vitals:status -- --verbose` prints active adapter and masked DB target diagnostics.
+`vitals:restart` force-cleans process state before re-start for a clean post-restart state.
+
+Convenience aliases are also available:
+
+```bash
+npm run status
+npm run stop
+npm run restart
+npm run force
+```
 
 Optional environment variables:
 
 - `ASR_DB_ADAPTER` (`sqlite` default, `db2` optional)
 - `ASR_API_PORT` (default `5180`)
+- `ASR_PRUNE_UNMANAGED_PORTS` (default `true`) to reclaim stale/unmanaged listeners on the API port
+- `ASR_PRUNE_TIMEOUT_MS` (default `1500`) grace period before SIGKILL fallback during port reclamation
 - `ASR_SQLITE_PATH` (default `./asr.db`)
 - `ASR_DB2_CONNECTION_STRING` (preferred when `ASR_DB_ADAPTER=db2`)
 - `ASR_DB2_SCHEMA` (default `ASRDEV`)

@@ -5,6 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "stack:dev": "node scripts/stack-lifecycle.mjs dev",
+    "stack:start": "node scripts/stack-lifecycle.mjs start",
+    "stack:status": "node scripts/stack-lifecycle.mjs status",
+    "stack:stop": "node scripts/stack-lifecycle.mjs stop",
+    "stack:restart": "node scripts/stack-lifecycle.mjs restart",
+    "stack:force": "node scripts/stack-lifecycle.mjs force",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

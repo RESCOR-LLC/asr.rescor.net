@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
+  Button,
   Card,
   CardContent,
   Grid,
+  MenuItem,
   Slider,
   Stack,
   Table,
@@ -12,6 +14,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   Typography
 } from '@mui/material';
 import { computeThreatT } from '../../domain/stormRsk.js';
@@ -37,6 +40,8 @@ const MEANS_MARKS = [
   { value: 3, label: 'Nation State' }
 ];
 
+const THREAT_CATEGORIES = ['Human', 'Natural', 'Network', 'Technology', 'Physical', 'Other'];
+
 function getThreatHam(threat) {
   return {
     history: Number.isInteger(threat.history) ? threat.history : 3,
@@ -49,8 +54,54 @@ function updateThreatById(threats, threatId, patch) {
   return threats.map((threat) => (threat.id === threatId ? { ...threat, ...patch } : threat));
 }
 
+function nextThreatId(threats) {
+  const maxValue = threats.reduce((maxId, threat) => {
+    const match = String(threat.id || '').match(/T-(\d+)/);
+    if (!match) {
+      return maxId;
+    }
+
+    return Math.max(maxId, Number(match[1]));
+  }, 0);
+
+  return `T-${String(maxValue + 1).padStart(3, '0')}`;
+}
+
+function deleteThreatReferences(graph, threatId) {
+  const threats = graph.threats.filter((threat) => threat.id !== threatId);
+
+  const links = {
+    ...graph.links,
+    assetThreat: graph.links.assetThreat.filter((link) => link.threatId !== threatId),
+    threatVulnerability: graph.links.threatVulnerability.filter((link) => link.threatId !== threatId)
+  };
+
+  const controls = graph.controls.map((control) => ({
+    ...control,
+    appliesToThreatIds: Array.isArray(control.appliesToThreatIds)
+      ? control.appliesToThreatIds.filter((id) => id !== threatId)
+      : control.appliesToThreatIds,
+    appliesToPairs: Array.isArray(control.appliesToPairs)
+      ? control.appliesToPairs.filter((pair) => pair.threatId !== threatId)
+      : control.appliesToPairs
+  }));
+
+  return {
+    ...graph,
+    threats,
+    controls,
+    links
+  };
+}
+
 export function Ham533Workbench({ graph, onChangeGraph }) {
   const [selectedThreatId, setSelectedThreatId] = useState(() => graph.threats[0]?.id || null);
+
+  useEffect(() => {
+    if (!graph.threats.some((threat) => threat.id === selectedThreatId)) {
+      setSelectedThreatId(graph.threats[0]?.id || null);
+    }
+  }, [graph.threats, selectedThreatId]);
 
   const selectedThreat = useMemo(
     () => graph.threats.find((threat) => threat.id === selectedThreatId) || graph.threats[0] || null,
@@ -82,6 +133,45 @@ export function Ham533Workbench({ graph, onChangeGraph }) {
     });
   };
 
+  const handleThreatMetadataChange = (patch) => {
+    if (!selectedThreat) {
+      return;
+    }
+
+    onChangeGraph({
+      ...graph,
+      threats: updateThreatById(graph.threats, selectedThreat.id, patch)
+    });
+  };
+
+  const handleAddThreat = () => {
+    const newThreat = {
+      id: nextThreatId(graph.threats),
+      name: 'New Threat',
+      category: 'Other',
+      history: 3,
+      access: 1,
+      means: 1,
+      probability: computeThreatT({ history: 3, access: 1, means: 1 }).probability,
+      impact: computeThreatT({ history: 3, access: 1, means: 1 }).impact
+    };
+
+    onChangeGraph({
+      ...graph,
+      threats: [...graph.threats, newThreat]
+    });
+
+    setSelectedThreatId(newThreat.id);
+  };
+
+  const handleDeleteSelectedThreat = () => {
+    if (!selectedThreat) {
+      return;
+    }
+
+    onChangeGraph(deleteThreatReferences(graph, selectedThreat.id));
+  };
+
   return (
     <Card>
       <CardContent>
@@ -91,6 +181,19 @@ export function Ham533Workbench({ graph, onChangeGraph }) {
             Select a threat and adjust History (1..5), Access (1..3), and Means (1..3). Probability and Impact update live from HAM533.
           </Typography>
 
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" onClick={handleAddThreat}>Add Threat</Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              onClick={handleDeleteSelectedThreat}
+              disabled={!selectedThreat}
+            >
+              Delete Selected
+            </Button>
+          </Stack>
+
           <Grid container spacing={2}>
             <Grid item xs={12} lg={7}>
               <TableContainer>
@@ -98,6 +201,7 @@ export function Ham533Workbench({ graph, onChangeGraph }) {
                   <TableHead>
                     <TableRow>
                       <TableCell>Threat</TableCell>
+                      <TableCell>Category</TableCell>
                       <TableCell align="right">H</TableCell>
                       <TableCell align="right">A</TableCell>
                       <TableCell align="right">M</TableCell>
@@ -120,6 +224,7 @@ export function Ham533Workbench({ graph, onChangeGraph }) {
                           sx={{ cursor: 'pointer' }}
                         >
                           <TableCell>{threat.name}</TableCell>
+                          <TableCell>{threat.category || 'Other'}</TableCell>
                           <TableCell align="right">{ham.history}</TableCell>
                           <TableCell align="right">{ham.access}</TableCell>
                           <TableCell align="right">{ham.means}</TableCell>
@@ -137,6 +242,25 @@ export function Ham533Workbench({ graph, onChangeGraph }) {
               {selectedThreat ? (
                 <Stack spacing={2.25}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{selectedThreat.name}</Typography>
+
+                  <TextField
+                    size="small"
+                    label="Description"
+                    value={selectedThreat.name || ''}
+                    onChange={(event) => handleThreatMetadataChange({ name: event.target.value })}
+                  />
+
+                  <TextField
+                    size="small"
+                    select
+                    label="Category"
+                    value={selectedThreat.category || 'Other'}
+                    onChange={(event) => handleThreatMetadataChange({ category: event.target.value })}
+                  >
+                    {THREAT_CATEGORIES.map((category) => (
+                      <MenuItem key={category} value={category}>{category}</MenuItem>
+                    ))}
+                  </TextField>
 
                   <Stack spacing={0.75}>
                     <Typography variant="caption" color="text.secondary">History</Typography>

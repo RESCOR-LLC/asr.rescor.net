@@ -5,6 +5,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   Recorder,
   VitalSign,
@@ -20,10 +22,14 @@ const apiRoot = path.resolve(__dirname, '..');
 
 const API_HOST = getEnvString('ASR_API_HOST', '127.0.0.1');
 const API_PORT = getEnvNumber('ASR_API_PORT', 5180);
+const PRUNE_UNMANAGED_PORTS = getEnvString('ASR_PRUNE_UNMANAGED_PORTS', 'true') !== 'false';
+const PRUNE_TIMEOUT_MS = getEnvNumber('ASR_PRUNE_TIMEOUT_MS', 1500);
 const PID_DIR = path.join(apiRoot, '.pids');
 const LOG_DIR = path.join(apiRoot, 'logs');
 const PID_FILE = path.join(PID_DIR, 'asr-api.pid');
 const PROCESS_LOG_FILE = path.join(LOG_DIR, 'asr-api.out.log');
+
+const execAsync = promisify(exec);
 
 const recorder = new Recorder(getEnvString('ASR_API_LOG_FILE', 'asr-api.log'), 'asr-vitalsigns');
 
@@ -99,6 +105,66 @@ async function clearPid() {
   }
 }
 
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function listPortOwnerPids(port) {
+  try {
+    const { stdout } = await execAsync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null || true`);
+    return [...new Set(
+      stdout
+        .split('\n')
+        .map((value) => Number.parseInt(value.trim(), 10))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )];
+  } catch {
+    return [];
+  }
+}
+
+async function prunePortOwners({ port, managedPid = null, serviceName }) {
+  const owners = await listPortOwnerPids(port);
+  const targets = owners.filter((pid) => pid !== managedPid && pid !== process.pid);
+
+  if (targets.length === 0) {
+    return { pruned: false, message: `No unmanaged owners found for ${serviceName} on :${port}` };
+  }
+
+  for (const pid of targets) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // ignore race conditions
+    }
+  }
+
+  await sleep(PRUNE_TIMEOUT_MS);
+
+  const survivors = (await listPortOwnerPids(port)).filter((pid) => targets.includes(pid));
+  for (const pid of survivors) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // ignore race conditions
+    }
+  }
+
+  await sleep(250);
+  const remaining = (await listPortOwnerPids(port)).filter((pid) => targets.includes(pid));
+  if (remaining.length > 0) {
+    return {
+      pruned: false,
+      message: `Unable to reclaim ${serviceName} on :${port}; remaining pids: ${remaining.join(', ')}`
+    };
+  }
+
+  return {
+    pruned: true,
+    message: `Pruned unmanaged owner(s) for ${serviceName} on :${port}: ${targets.join(', ')}`
+  };
+}
+
 async function startDetachedApi() {
   await new Promise((resolve, reject) => {
     const migrate = spawn(process.execPath, ['scripts/apply-migrations.mjs'], {
@@ -153,7 +219,7 @@ function createVitals() {
       stop: [{ service: 'api', action: 'stop' }],
       force: [{ service: 'api', action: 'force' }],
       restart: [
-        { service: 'api', action: 'stop' },
+        { service: 'api', action: 'force' },
         { service: 'api', action: 'start' }
       ]
     },
@@ -163,27 +229,48 @@ function createVitals() {
           const pid = await readPid();
           const alive = isAlive(pid);
           const reachable = await isTcpPortReachable({ host: API_HOST, port: API_PORT });
+          const owners = await listPortOwnerPids(API_PORT);
 
           if (reachable) {
-            return { state: 'success', data: { pid, alive, reachable } };
+            return { state: 'success', data: { pid, alive, reachable, owners, managed: Boolean(pid && alive) } };
           }
 
           return {
             state: 'hard-fail',
             message: `ASR API is not reachable on ${API_HOST}:${API_PORT}`,
-            data: { pid, alive, reachable }
+            data: { pid, alive, reachable, owners, managed: Boolean(pid && alive) }
           };
         },
         start: async ({ attempt }) => {
           const reachable = await isTcpPortReachable({ host: API_HOST, port: API_PORT });
           const pid = await readPid();
+          const alive = isAlive(pid);
 
-          if (reachable) {
+          if (reachable && pid && alive) {
             return { state: 'success', message: 'ASR API already reachable' };
           }
 
+          if (reachable && !(pid && alive)) {
+            if (!PRUNE_UNMANAGED_PORTS) {
+              return {
+                state: 'hard-fail',
+                message: `ASR API port ${API_PORT} is occupied by unmanaged process; set ASR_PRUNE_UNMANAGED_PORTS=true to reclaim`
+              };
+            }
+
+            const pruneResult = await prunePortOwners({ port: API_PORT, managedPid: pid, serviceName: 'api' });
+            if (!pruneResult.pruned) {
+              return {
+                state: 'hard-fail',
+                message: `ASR API port ${API_PORT} is occupied and could not be reclaimed: ${pruneResult.message}`
+              };
+            }
+
+            return { state: 'retry', delayMs: 600, message: pruneResult.message };
+          }
+
           if (attempt === 1) {
-            if (pid && !isAlive(pid)) {
+            if (pid && !alive) {
               await clearPid();
             }
             await startDetachedApi();
@@ -194,21 +281,53 @@ function createVitals() {
             ? { state: 'success' }
             : { state: 'retry', delayMs: 800, message: 'Waiting for ASR API to become reachable' };
         },
-        stop: async () => {
-          const result = await stopBySignal('SIGTERM');
-          if (!result.hadPid) {
-            return { state: 'success', message: 'No ASR API PID to stop' };
+        stop: async ({ attempt }) => {
+          if (attempt === 1) {
+            await stopBySignal('SIGTERM');
           }
 
-          await clearPid();
+          const pid = await readPid();
+          const alive = isAlive(pid);
           const reachable = await isTcpPortReachable({ host: API_HOST, port: API_PORT });
-          return reachable
-            ? { state: 'retry', delayMs: 500, message: 'Waiting for ASR API to stop' }
-            : { state: 'success' };
+
+          if (pid && !alive) {
+            await clearPid();
+          }
+
+          if (!reachable) {
+            await clearPid();
+            return { state: 'success' };
+          }
+
+          if (!PRUNE_UNMANAGED_PORTS) {
+            return { state: 'retry', delayMs: 500, message: 'Waiting for ASR API to stop' };
+          }
+
+          if (attempt > 2) {
+            const pruneResult = await prunePortOwners({ port: API_PORT, managedPid: pid, serviceName: 'api' });
+            if (pruneResult.pruned) {
+              return { state: 'retry', delayMs: 500, message: pruneResult.message };
+            }
+            return {
+              state: 'hard-fail',
+              message: `ASR API still reachable on ${API_HOST}:${API_PORT}: ${pruneResult.message}`
+            };
+          }
+
+          return { state: 'retry', delayMs: 500, message: 'Waiting for ASR API to stop' };
         },
         force: async () => {
           await stopBySignal('SIGKILL');
           await clearPid();
+
+          const reachable = await isTcpPortReachable({ host: API_HOST, port: API_PORT });
+          if (reachable && PRUNE_UNMANAGED_PORTS) {
+            const pruneResult = await prunePortOwners({ port: API_PORT, managedPid: null, serviceName: 'api' });
+            if (!pruneResult.pruned) {
+              return { state: 'hard-fail', message: pruneResult.message };
+            }
+          }
+
           return { state: 'success' };
         }
       })

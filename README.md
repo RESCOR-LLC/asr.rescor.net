@@ -16,6 +16,7 @@ ASR is evolving from a legacy prototype (`legacy/`) into a modern React/MUI adju
 - `cd frontend`
 - `npm install`
 - `npm run dev`
+- `npm run stack:dev` (recommended: runs `rescor` preflight + API VitalSigns + frontend dev, and cleans up API on exit)
 
 ## Development (graph API, relational)
 - `cd api`
@@ -29,3 +30,10 @@ API implementation notes:
 - Logging uses `Recorder` from `@rescor/core-utils`.
 - Lifecycle orchestration uses VitalSigns (`npm run vitals:start|status|stop|force`).
 - DB adapter is selected by `ASR_DB_ADAPTER` (`sqlite` default, `db2` supported via core-db adapter factory).
+
+Stack lifecycle commands (from `frontend/`) route through API VitalSigns and use project-scoped `rescor env list --project asr.rescor.net` preflight before start/restart/force:
+- `npm run stack:start`
+- `npm run stack:status`
+- `npm run stack:stop`
+- `npm run stack:restart`
+- `npm run stack:force`

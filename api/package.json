@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "migrate": "node scripts/apply-migrations.mjs",
-    "start": "npm run migrate && node src/server.mjs",
+    "start": "node scripts/vitalsigns.mjs start",
+    "status": "node scripts/vitalsigns.mjs status",
+    "stop": "node scripts/vitalsigns.mjs stop",
+    "restart": "node scripts/vitalsigns.mjs restart",
+    "force": "node scripts/vitalsigns.mjs force",
     "dev": "npm run migrate && node --watch src/server.mjs",
     "vitals:start": "node scripts/vitalsigns.mjs start",
     "vitals:status": "node scripts/vitalsigns.mjs status",
     "vitals:stop": "node scripts/vitalsigns.mjs stop",
-    "vitals:force": "node scripts/vitalsigns.mjs force"
+    "vitals:force": "node scripts/vitalsigns.mjs force",
+    "vitals:restart": "node scripts/vitalsigns.mjs restart"
   },
   "dependencies": {
     "@rescor/core-db": "file:../../core.rescor.net/packages/core-db",

@@ -7,6 +7,7 @@ export const mockRiskGraph = {
     {
       id: 'T-CRED',
       name: 'Credential Stuffing',
+      category: 'Network',
       history: 5,
       access: 2,
       means: 1,
@@ -16,6 +17,7 @@ export const mockRiskGraph = {
     {
       id: 'T-INSIDER',
       name: 'Insider Abuse',
+      category: 'Human',
       history: 3,
       access: 2,
       means: 1,
