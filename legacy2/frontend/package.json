@@ -1,0 +1,36 @@
+{
+  "name": "asr-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "stack:dev": "node scripts/stack-lifecycle.mjs dev",
+    "stack:start": "node scripts/stack-lifecycle.mjs start",
+    "stack:status": "node scripts/stack-lifecycle.mjs status",
+    "stack:stop": "node scripts/stack-lifecycle.mjs stop",
+    "stack:restart": "node scripts/stack-lifecycle.mjs restart",
+    "stack:force": "node scripts/stack-lifecycle.mjs force",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "parity:report": "node scripts/generate-legacy-parity-report.mjs",
+    "parity:check": "node scripts/generate-legacy-parity-report.mjs --check"
+  },
+  "dependencies": {
+    "@rescor/core-utils": "file:../../core.rescor.net/packages/core-utils",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.7",
+    "@mui/material": "^7.3.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8",
+    "vitest": "^2.1.9"
+  }
+}
