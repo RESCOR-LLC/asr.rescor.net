@@ -1,0 +1,14 @@
+{
+  "name": "asr.rescor.net",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "api",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "echo 'Use: cd api && npm run dev   or   cd frontend && npm run dev'",
+    "install:all": "npm install && cd api && npm install && cd ../frontend && npm install"
+  }
+}

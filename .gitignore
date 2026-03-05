@@ -1,7 +1,12 @@
 .DS_Store
 node_modules/
+dist/
+.env
 
 # Runtime artifacts
 api/.pids/
 api/logs/*.log
 api/*.db
+
+# Build output
+frontend/dist/
