@@ -3,7 +3,8 @@
 // ════════════════════════════════════════════════════════════════════
 // Uses ExcelJS in the browser to produce a downloadable Excel file
 // with a Summary sheet and a detailed Questionnaire sheet.
-// All cells are locked by default via sheet protection.
+// Color palette mirrors the standalone Stride ASR Questionnaire Excel.
+// Cells are content-locked; formatting is permitted.
 
 import ExcelJS from 'exceljs';
 import type {
@@ -14,6 +15,63 @@ import type {
 } from './types';
 import { rskAggregate } from './scoring';
 import type { ScoreResult } from './scoring';
+
+// ────────────────────────────────────────────────────────────────────
+// Color palette — matches build_excel_asr.py
+// ────────────────────────────────────────────────────────────────────
+
+const COLORS = {
+  // Branding
+  titleGreen:  'FF2E7D32',
+  subtitleBlue:'FF1565C0',
+  headerFill:  'FF37474F',
+  headerFont:  'FFFFFFFF',
+
+  // Borders
+  thinBorder:  'FFBDBDBD',
+  thickBorder: 'FF757575',
+
+  // Domain row alternating fills (Material Design -50 tints, cycling)
+  domainFills: [
+    'FFE3F2FD',  // Blue-50
+    'FFE8F5E9',  // Green-50
+    'FFFFF3E0',  // Orange-50
+    'FFF3E5F5',  // Purple-50
+    'FFE0F7FA',  // Cyan-50
+    'FFFBE9E7',  // DeepOrange-50
+    'FFF1F8E9',  // LightGreen-50
+  ],
+
+  // Weight tier fills
+  weightTier: {
+    Critical: 'FFFFCDD2',  // Red-100
+    High:     'FFFFE0B2',  // Orange-100
+    Medium:   'FFC8E6C9',  // Green-100
+    Info:     'FFF5F5F5',  // Grey-100
+  } as Record<string, string>,
+
+  // Measurement gradient stops (green → amber → red)
+  gradientGreen: 'FF4CAF50',
+  gradientAmber: 'FFFFC107',
+  gradientRed:   'FFC62828',
+
+  // Rating fills and fonts
+  rating: {
+    Low:      { fill: 'FFE8F5E9', font: 'FF2E7D32' },
+    Moderate: { fill: 'FFFFF3E0', font: 'FF000000' },
+    Elevated: { fill: 'FFFFE0B2', font: 'FFE65100' },
+    Critical: { fill: 'FFFFCDD2', font: 'FFC62828' },
+  } as Record<string, { fill: string; font: string }>,
+
+  // Special
+  overallRow:   'FFFFF9C4',  // Yellow-100
+  zeroWhite:    'FFFFFFFF',
+  footerGray:   'FF757575',
+
+  // Tab colors
+  summaryTab:       'C62828',
+  questionnaireTab: '1565C0',
+} as const;
 
 // ────────────────────────────────────────────────────────────────────
 // Public API
@@ -51,14 +109,14 @@ function buildSummarySheet(
   workbook: ExcelJS.Workbook,
   options: ExportOptions,
 ): void {
-  const sheet = workbook.addWorksheet('Summary');
+  const sheet = workbook.addWorksheet('Summary', { properties: { tabColor: { argb: COLORS.summaryTab } } });
 
   // Column widths
   sheet.getColumn(1).width = 28;
   sheet.getColumn(2).width = 48;
 
   const titleRow = sheet.addRow(['Application Security Review']);
-  titleRow.font = { bold: true, size: 16 };
+  titleRow.font = { bold: true, size: 16, color: { argb: COLORS.titleGreen } };
   sheet.mergeCells('A1:B1');
   sheet.addRow([]);
 
@@ -82,26 +140,66 @@ function buildSummarySheet(
     }
   }
 
-  // Section scores
+  // Apply rating color to Risk Rating value cell
+  const ratingStyle = COLORS.rating[options.liveScore.rating];
+  if (ratingStyle) {
+    const ratingRowNumber = sheet.rowCount;
+    const ratingCell = sheet.getRow(ratingRowNumber).getCell(2);
+    ratingCell.font = { bold: true, color: { argb: ratingStyle.font } };
+    ratingCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: ratingStyle.fill },
+    };
+  }
+
+  // ── Domain section scores ──────────────────────────────────────
   sheet.addRow([]);
   const sectionHeaderRow = sheet.addRow(['Domain Scores']);
-  sectionHeaderRow.font = { bold: true, size: 13 };
+  sectionHeaderRow.font = { bold: true, size: 13, color: { argb: COLORS.subtitleBlue } };
   sheet.addRow(['Domain', 'Section Score (RU)']);
   const domainHeaderRow = sheet.getRow(sheet.rowCount);
-  domainHeaderRow.font = { bold: true };
-  domainHeaderRow.eachCell((cell) => {
+  styleHeaderRow(domainHeaderRow);
+
+  const dampingFactor = options.configuration.scoringConfiguration.dampingFactor;
+
+  for (const domain of options.configuration.domains) {
+    const sectionScore = computeSectionScore(domain, options.answers, dampingFactor);
+    const row = sheet.addRow([`${domain.domainIndex}. ${domain.name}`, sectionScore]);
+    applyMeasurementFill(row.getCell(2), sectionScore);
+  }
+
+  // Overall row
+  const overallRow = sheet.addRow(['Overall', options.liveScore.raw]);
+  overallRow.font = { bold: true };
+  overallRow.eachCell((cell) => {
     cell.fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: 'FF1565C0' },
+      fgColor: { argb: COLORS.overallRow },
     };
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   });
+  applyMeasurementFill(overallRow.getCell(2), options.liveScore.raw);
 
-  const dampingFactor = options.configuration.scoringConfiguration.dampingFactor;
-  for (const domain of options.configuration.domains) {
-    const sectionScore = computeSectionScore(domain, options.answers, dampingFactor);
-    sheet.addRow([`${domain.domainIndex}. ${domain.name}`, sectionScore]);
+  // ── Rating scale reference ─────────────────────────────────────
+  sheet.addRow([]);
+  const scaleHeader = sheet.addRow(['Rating Scale']);
+  scaleHeader.font = { bold: true, size: 13 };
+  const scaleLabels: [string, string, string][] = [
+    ['0–25%', 'Low', COLORS.rating.Low.fill],
+    ['26–50%', 'Moderate', COLORS.rating.Moderate.fill],
+    ['51–75%', 'Elevated', COLORS.rating.Elevated.fill],
+    ['76–100%', 'Critical', COLORS.rating.Critical.fill],
+  ];
+  for (const [range, label, fillColor] of scaleLabels) {
+    const row = sheet.addRow([range, label]);
+    row.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+    });
+    const style = COLORS.rating[label];
+    if (style) {
+      row.getCell(2).font = { bold: true, color: { argb: style.font } };
+    }
   }
 
   applySheetProtection(sheet);
@@ -115,7 +213,9 @@ function buildQuestionnaireSheet(
   workbook: ExcelJS.Workbook,
   options: ExportOptions,
 ): void {
-  const sheet = workbook.addWorksheet('Questionnaire');
+  const sheet = workbook.addWorksheet('Questionnaire', {
+    properties: { tabColor: { argb: COLORS.questionnaireTab } },
+  });
 
   // Column widths
   const columns = [
@@ -138,15 +238,7 @@ function buildQuestionnaireSheet(
 
   // Header row
   const headerRow = sheet.addRow(columns.map((column) => column.header));
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  headerRow.eachCell((cell) => {
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF1565C0' },
-    };
-    cell.alignment = { wrapText: true, vertical: 'top' };
-  });
+  styleHeaderRow(headerRow);
 
   // Freeze header row
   sheet.views = [{ state: 'frozen', ySplit: 1, xSplit: 0 }];
@@ -175,6 +267,15 @@ function addDomainRows(
     .map((ref) => `${ref.tag}: ${ref.code}`)
     .join(', ');
 
+  // Cycling domain fill by index (Material Design -50 tints)
+  const domainFill = COLORS.domainFills[(domain.domainIndex - 1) % COLORS.domainFills.length];
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top:    { style: 'thin', color: { argb: COLORS.thinBorder } },
+    bottom: { style: 'thin', color: { argb: COLORS.thinBorder } },
+    left:   { style: 'thin', color: { argb: COLORS.thinBorder } },
+    right:  { style: 'thin', color: { argb: COLORS.thinBorder } },
+  };
+
   for (const question of domain.questions) {
     const key = `${question.domainIndex}:${question.questionIndex}`;
     const answer = answers.get(key);
@@ -196,16 +297,29 @@ function addDomainRows(
 
     row.alignment = { wrapText: true, vertical: 'top' };
 
-    // Light alternating fill based on domain index
-    if (question.domainIndex % 2 === 0) {
-      row.eachCell((cell) => {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFF5F5F5' },
-        };
-      });
+    // Domain tint on every row
+    row.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: domainFill },
+      };
+      cell.border = thinBorder;
+    });
+
+    // Weight tier fill on the Weight Tier cell (col 5)
+    const tierFill = COLORS.weightTier[question.weightTier];
+    if (tierFill) {
+      row.getCell(5).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: tierFill },
+      };
     }
+
+    // Measurement gradient on the Measurement cell (col 9)
+    const measurement = answer?.measurement ?? 0;
+    applyMeasurementFill(row.getCell(9), measurement);
   }
 }
 
@@ -217,9 +331,9 @@ function applySheetProtection(sheet: ExcelJS.Worksheet): void {
   sheet.protect('asr-readonly', {
     selectLockedCells: true,
     selectUnlockedCells: true,
-    formatCells: false,
-    formatColumns: false,
-    formatRows: false,
+    formatCells: true,
+    formatColumns: true,
+    formatRows: true,
     insertRows: false,
     insertColumns: false,
     insertHyperlinks: false,
@@ -228,6 +342,87 @@ function applySheetProtection(sheet: ExcelJS.Worksheet): void {
     sort: true,
     autoFilter: true,
   });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Shared styling helpers
+// ────────────────────────────────────────────────────────────────────
+
+function styleHeaderRow(row: ExcelJS.Row): void {
+  row.font = { bold: true, color: { argb: COLORS.headerFont } };
+  row.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: COLORS.headerFill },
+    };
+    cell.alignment = { wrapText: true, vertical: 'top' };
+    cell.border = {
+      bottom: { style: 'medium', color: { argb: COLORS.thickBorder } },
+    };
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Measurement gradient — green(4CAF50) → amber(FFC107) → red(C62828)
+// Midpoint at 42, max at 85. Zero → white.
+// ────────────────────────────────────────────────────────────────────
+
+const GRADIENT_MIN = 1;
+const GRADIENT_MID = 42;
+const GRADIENT_MAX = 85;
+
+function applyMeasurementFill(cell: ExcelJS.Cell, measurement: number): void {
+  let fillArgb: string = COLORS.zeroWhite;
+
+  if (measurement > 0) {
+    fillArgb = interpolateGradientColor(measurement);
+  }
+
+  cell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: fillArgb },
+  };
+}
+
+function interpolateGradientColor(value: number): string {
+  const clamped = Math.max(GRADIENT_MIN, Math.min(GRADIENT_MAX, value));
+
+  // Parse the three stops (strip leading 'FF' alpha prefix)
+  const greenRgb = parseHexRgb(COLORS.gradientGreen.slice(2));
+  const amberRgb = parseHexRgb(COLORS.gradientAmber.slice(2));
+  const redRgb   = parseHexRgb(COLORS.gradientRed.slice(2));
+
+  let red: number;
+  let green: number;
+  let blue: number;
+
+  if (clamped <= GRADIENT_MID) {
+    const ratio = (clamped - GRADIENT_MIN) / (GRADIENT_MID - GRADIENT_MIN);
+    red   = Math.round(greenRgb[0] + (amberRgb[0] - greenRgb[0]) * ratio);
+    green = Math.round(greenRgb[1] + (amberRgb[1] - greenRgb[1]) * ratio);
+    blue  = Math.round(greenRgb[2] + (amberRgb[2] - greenRgb[2]) * ratio);
+  } else {
+    const ratio = (clamped - GRADIENT_MID) / (GRADIENT_MAX - GRADIENT_MID);
+    red   = Math.round(amberRgb[0] + (redRgb[0] - amberRgb[0]) * ratio);
+    green = Math.round(amberRgb[1] + (redRgb[1] - amberRgb[1]) * ratio);
+    blue  = Math.round(amberRgb[2] + (redRgb[2] - amberRgb[2]) * ratio);
+  }
+
+  return `FF${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+function parseHexRgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(0, 2), 16),
+    parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function toHex(value: number): string {
+  return Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0').toUpperCase();
 }
 
 // ────────────────────────────────────────────────────────────────────
