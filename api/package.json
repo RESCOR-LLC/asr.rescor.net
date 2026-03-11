@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --env-file=../.env --watch src/server.mjs",
     "start": "node --env-file=../.env src/server.mjs",
-    "cypher:setup": "node --env-file=../.env src/setupDatabase.mjs"
+    "cypher:setup": "node --env-file=../.env src/setupDatabase.mjs",
+    "cypher:configure": "node --env-file=../.env src/configureFromYaml.mjs"
   },
   "dependencies": {
     "@infisical/sdk": "^4.0.6",

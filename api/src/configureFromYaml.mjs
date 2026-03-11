@@ -1,0 +1,376 @@
+// ════════════════════════════════════════════════════════════════════
+// ASR YAML-to-Cypher Configuration Tool
+// ════════════════════════════════════════════════════════════════════
+// Reads a client YAML questionnaire file and applies its content to
+// Neo4j as Domain, Question, ClassificationQuestion, and related
+// nodes.  This is the single-source-of-truth pipeline — question
+// content lives in YAML, not in hand-maintained Cypher scripts.
+//
+// Usage:
+//   ASR_QUESTIONNAIRE_YAML=../asr.k12.com/build/asr_questions.yaml \
+//     node --env-file=../.env src/configureFromYaml.mjs
+//
+// Prerequisites: run `npm run cypher:setup -w api` first to seed
+// scaffolding (ScoringConfig, WeightTier, ScoreScale, constraints).
+// ════════════════════════════════════════════════════════════════════
+
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import yaml from 'js-yaml';
+import { createConfiguration, createDatabase } from './database.mjs';
+
+// ────────────────────────────────────────────────────────────────────
+// YAML validation helpers
+// ────────────────────────────────────────────────────────────────────
+
+const VALID_RISK_LEVELS = new Set(['L', 'G', 'M', 'E', 'H']);
+const VALID_WEIGHT_TIERS = new Set(['Critical', 'High', 'Medium', 'Info']);
+
+function validateYaml(data) {
+  const errors = [];
+
+  if (!Array.isArray(data.domains) || data.domains.length === 0) {
+    errors.push('YAML must have a non-empty "domains" array.');
+  }
+
+  const validArchetypes = new Set(Object.keys(data.deployment_archetypes || {}));
+
+  for (let domainIndex = 0; domainIndex < (data.domains || []).length; domainIndex++) {
+    const domain = data.domains[domainIndex];
+    const domainLabel = `Domain ${domainIndex} (${domain.name || 'unnamed'})`;
+
+    if (!domain.name) {
+      errors.push(`${domainLabel}: missing "name".`);
+    }
+
+    if (!Array.isArray(domain.questions) || domain.questions.length === 0) {
+      errors.push(`${domainLabel}: must have at least one question.`);
+      continue;
+    }
+
+    for (let questionIndex = 0; questionIndex < domain.questions.length; questionIndex++) {
+      const question = domain.questions[questionIndex];
+      const questionLabel = `D${domainIndex} Q${questionIndex}`;
+
+      if (!question.text) {
+        errors.push(`${questionLabel}: missing "text".`);
+      }
+
+      if (!VALID_WEIGHT_TIERS.has(question.weight)) {
+        errors.push(`${questionLabel}: invalid weight "${question.weight}". Must be one of: ${[...VALID_WEIGHT_TIERS].join(', ')}`);
+      }
+
+      if (!Array.isArray(question.choices) || question.choices.length < 2) {
+        errors.push(`${questionLabel}: must have at least 2 choices.`);
+        continue;
+      }
+
+      for (let choiceIndex = 0; choiceIndex < question.choices.length; choiceIndex++) {
+        const choice = question.choices[choiceIndex];
+        if (!choice.text) {
+          errors.push(`${questionLabel} choice ${choiceIndex}: missing "text".`);
+        }
+        if (!VALID_RISK_LEVELS.has(choice.risk)) {
+          errors.push(`${questionLabel} choice ${choiceIndex}: invalid risk "${choice.risk}".`);
+        }
+      }
+
+      const applicability = question.applicability || [];
+      for (const code of applicability) {
+        if (validArchetypes.size > 0 && !validArchetypes.has(code)) {
+          errors.push(`${questionLabel}: unknown archetype code "${code}". Valid: ${[...validArchetypes].join(', ')}`);
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Score derivation — from risk level and choice count
+// ────────────────────────────────────────────────────────────────────
+
+function deriveChoiceScores(choices, scoreScales) {
+  const choiceCount = choices.length;
+  const scale = scoreScales[choiceCount];
+
+  if (!scale) {
+    // Fallback: linear interpolation for unusual choice counts
+    const result = choices.map((_, index) =>
+      Math.round(15 + (index / (choiceCount - 1)) * 70)
+    );
+    return result;
+  }
+
+  const result = choices.map((choice) => scale[choice.risk] || 50);
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Cypher generation
+// ────────────────────────────────────────────────────────────────────
+
+function generateDomainStatements(data) {
+  const statements = [];
+  const scoreScales = data.score_scales || {};
+  const naScore = data.na_score ?? 1;
+
+  // ── Classification question ──────────────────────────────────────
+  const classification = data.classification_question;
+  if (classification) {
+    const choiceParams = classification.choices.map((choice, index) => ({
+      text: choice.text,
+      factor: choice.factor,
+      sortOrder: index,
+    }));
+
+    statements.push({
+      cypher: `
+        MERGE (classification:ClassificationQuestion {questionId: 'classification'})
+          SET classification.text      = $text,
+              classification.naAllowed = false,
+              classification.updated   = datetime()
+        WITH classification
+        UNWIND $choices AS choice
+        MERGE (classification)-[:HAS_CHOICE]->(c:ClassificationChoice {text: choice.text})
+          SET c.factor    = choice.factor,
+              c.sortOrder = choice.sortOrder,
+              c.updated   = datetime()
+      `,
+      params: { text: classification.text, choices: choiceParams },
+    });
+  }
+
+  // ── Deployment question (transcendental) ─────────────────────────
+  const deploymentQuestion = data.deployment_question;
+  if (deploymentQuestion) {
+    const choiceParams = deploymentQuestion.choices.map((choice, index) => ({
+      text: choice.text,
+      archetype: choice.archetype,
+      sortOrder: index,
+    }));
+
+    statements.push({
+      cypher: `
+        MERGE (deploymentQuestion:DeploymentQuestion {questionId: 'deployment'})
+          SET deploymentQuestion.text      = $text,
+              deploymentQuestion.naAllowed = false,
+              deploymentQuestion.updated   = datetime()
+        WITH deploymentQuestion
+        UNWIND $choices AS choice
+        MERGE (deploymentQuestion)-[:HAS_CHOICE]->(c:DeploymentChoice {archetype: choice.archetype})
+          SET c.text      = choice.text,
+              c.sortOrder = choice.sortOrder,
+              c.updated   = datetime()
+      `,
+      params: { text: deploymentQuestion.text, choices: choiceParams },
+    });
+  }
+
+  // ── Deployment archetypes ────────────────────────────────────────
+  const archetypes = data.deployment_archetypes || {};
+  for (const [code, meta] of Object.entries(archetypes)) {
+    statements.push({
+      cypher: `
+        MERGE (archetype:DeploymentArchetype {code: $code})
+          SET archetype.label       = $label,
+              archetype.description = $description,
+              archetype.sortOrder   = $sortOrder,
+              archetype.updated     = datetime()
+      `,
+      params: {
+        code,
+        label: meta.label,
+        description: meta.description,
+        sortOrder: Object.keys(archetypes).indexOf(code),
+      },
+    });
+  }
+
+  // ── Domains and questions ────────────────────────────────────────
+  for (let domainIndex = 0; domainIndex < data.domains.length; domainIndex++) {
+    const domain = data.domains[domainIndex];
+
+    statements.push({
+      cypher: `
+        MERGE (domain:Domain {domainIndex: $domainIndex})
+          SET domain.name       = $name,
+              domain.policyRefs = $policyRefs,
+              domain.csfRefs    = $csfRefs,
+              domain.ferpaNote  = $ferpaNote,
+              domain.soxNote    = $soxNote,
+              domain.active     = true,
+              domain.updated    = datetime()
+      `,
+      params: {
+        domainIndex,
+        name: domain.name,
+        policyRefs: domain.policy_refs || [],
+        csfRefs: domain.csf_refs || [],
+        ferpaNote: domain.ferpa_note || null,
+        soxNote: domain.sox_note || null,
+      },
+    });
+
+    for (let questionIndex = 0; questionIndex < domain.questions.length; questionIndex++) {
+      const question = domain.questions[questionIndex];
+      const choiceTexts = question.choices.map((choice) => choice.text);
+      const choiceScores = deriveChoiceScores(question.choices, scoreScales);
+
+      statements.push({
+        cypher: `
+          MERGE (question:Question {domainIndex: $domainIndex, questionIndex: $questionIndex})
+            SET question.text          = $text,
+                question.weightTier    = $weightTier,
+                question.choices       = $choices,
+                question.choiceScores  = $choiceScores,
+                question.naScore       = $naScore,
+                question.applicability = $applicability,
+                question.guidance      = $guidance,
+                question.updated       = datetime()
+        `,
+        params: {
+          domainIndex,
+          questionIndex,
+          text: question.text,
+          weightTier: question.weight,
+          choices: choiceTexts,
+          choiceScores,
+          naScore,
+          applicability: question.applicability || [],
+          guidance: question.guidance || null,
+        },
+      });
+    }
+
+    // Wire BELONGS_TO relationships for this domain
+    statements.push({
+      cypher: `
+        MATCH (domain:Domain {domainIndex: $domainIndex})
+        MATCH (question:Question) WHERE question.domainIndex = $domainIndex
+        MERGE (question)-[:BELONGS_TO]->(domain)
+      `,
+      params: { domainIndex },
+    });
+
+    // Wire HAS_WEIGHT relationships for this domain
+    statements.push({
+      cypher: `
+        MATCH (question:Question) WHERE question.domainIndex = $domainIndex
+        MATCH (tier:WeightTier {name: question.weightTier})
+        MERGE (question)-[:HAS_WEIGHT]->(tier)
+      `,
+      params: { domainIndex },
+    });
+  }
+
+  return statements;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Orphan cleanup — remove questions/domains that no longer exist
+// ────────────────────────────────────────────────────────────────────
+
+function generateCleanupStatements(data) {
+  const statements = [];
+  const domainCount = data.domains.length;
+
+  // Remove domains beyond the current count
+  statements.push({
+    cypher: `
+      MATCH (domain:Domain)
+      WHERE domain.domainIndex >= $domainCount
+      DETACH DELETE domain
+    `,
+    params: { domainCount },
+  });
+
+  // Remove excess questions per domain
+  for (let domainIndex = 0; domainIndex < domainCount; domainIndex++) {
+    const questionCount = data.domains[domainIndex].questions.length;
+
+    statements.push({
+      cypher: `
+        MATCH (question:Question {domainIndex: $domainIndex})
+        WHERE question.questionIndex >= $questionCount
+        DETACH DELETE question
+      `,
+      params: { domainIndex, questionCount },
+    });
+  }
+
+  return statements;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Main
+// ────────────────────────────────────────────────────────────────────
+
+async function configureFromYaml() {
+  const yamlPath = process.env.ASR_QUESTIONNAIRE_YAML;
+  if (!yamlPath) {
+    console.error('Error: ASR_QUESTIONNAIRE_YAML environment variable not set.');
+    console.error('Usage: ASR_QUESTIONNAIRE_YAML=path/to/asr_questions.yaml node src/configureFromYaml.mjs');
+    process.exit(1);
+  }
+
+  const absolutePath = resolve(yamlPath);
+  console.log(`Reading YAML from ${absolutePath}`);
+
+  const raw = readFileSync(absolutePath, 'utf-8');
+  const data = yaml.load(raw);
+
+  // Validate
+  const errors = validateYaml(data);
+  if (errors.length > 0) {
+    console.error('YAML validation failed:');
+    for (const error of errors) {
+      console.error(`  • ${error}`);
+    }
+    process.exit(1);
+  }
+
+  const domainCount = data.domains.length;
+  const questionCount = data.domains.reduce(
+    (sum, domain) => sum + domain.questions.length, 0
+  );
+  console.log(`Validated: ${domainCount} domains, ${questionCount} questions`);
+
+  // Generate Cypher
+  const domainStatements = generateDomainStatements(data);
+  const cleanupStatements = generateCleanupStatements(data);
+  const allStatements = [...domainStatements, ...cleanupStatements];
+
+  console.log(`Generated ${allStatements.length} Cypher statements`);
+
+  // Connect and execute
+  const configuration = await createConfiguration();
+  const database = await createDatabase(configuration);
+
+  let executed = 0;
+  for (const { cypher, params } of allStatements) {
+    await database.query(cypher, params);
+    executed++;
+  }
+
+  console.log(`Executed ${executed} statements successfully`);
+
+  // Summary
+  const archetypeCount = Object.keys(data.deployment_archetypes || {}).length;
+  const hasClassification = !!data.classification_question;
+  const hasDeployment = !!data.deployment_question;
+  console.log(`\nConfiguration applied:`);
+  console.log(`  ${domainCount} domains, ${questionCount} questions`);
+  console.log(`  Classification question: ${hasClassification ? 'yes' : 'no'}`);
+  console.log(`  Deployment question: ${hasDeployment ? 'yes' : 'no'}`);
+  console.log(`  Deployment archetypes: ${archetypeCount}`);
+
+  await database.disconnect();
+  console.log('Done.');
+}
+
+configureFromYaml().catch((error) => {
+  console.error('Configuration failed:', error);
+  process.exit(1);
+});

@@ -43,6 +43,14 @@ CREATE CONSTRAINT scoring_config_id_unique IF NOT EXISTS
   FOR (config:ScoringConfig)
   REQUIRE config.configId IS UNIQUE;
 
+CREATE CONSTRAINT deployment_archetype_code_unique IF NOT EXISTS
+  FOR (archetype:DeploymentArchetype)
+  REQUIRE archetype.code IS UNIQUE;
+
+CREATE CONSTRAINT deployment_choice_archetype_unique IF NOT EXISTS
+  FOR (choice:DeploymentChoice)
+  REQUIRE choice.archetype IS UNIQUE;
+
 // ─── Existence Constraints (Enterprise Edition only) ─────────────
 // Uncomment when running Neo4j Enterprise:
 //
