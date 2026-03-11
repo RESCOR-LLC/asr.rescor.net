@@ -19,107 +19,135 @@ export function createAnswersRouter(database) {
 
   // ── Save answers (bulk upsert) ─────────────────────────────────
   router.put('/:reviewId/answers', async (request, response) => {
-    let answer = null;
+    let statusCode = 200;
+    let body = null;
     const { reviewId } = request.params;
     const { classificationFactor, answers, assessor } = request.body;
     const now = new Date().toISOString();
 
     try {
       const scoringConfiguration = await loadScoringConfiguration(database);
+      const weightTierMap = await loadWeightTierMap(database);
 
-      // Fetch weight tier values for measurement computation
-      const weightTiersResult = await database.query(
-        `MATCH (tier:WeightTier) RETURN tier.name AS name, tier.value AS value`
-      );
-      const weightTierMap = {};
-      for (const record of weightTiersResult) {
-        weightTierMap[record.name] = record.value;
-      }
-
-      // Upsert each answer and compute measurement server-side
-      const allMeasurements = [];
-
-      for (const item of answers) {
-        const weightValue = weightTierMap[item.weightTier] ?? item.weightValue ?? 0;
-        const measurement = questionMeasurement(
-          item.rawScore,
-          weightValue,
-          classificationFactor
-        );
-        allMeasurements.push(measurement);
-
-        await database.query(
-          `MATCH (review:Review {reviewId: $reviewId})
-           MATCH (question:Question {domainIndex: $domainIndex, questionIndex: $questionIndex})
-           MERGE (review)-[:CONTAINS]->(existingAnswer:Answer {domainIndex: $domainIndex, questionIndex: $questionIndex})
-           ON CREATE SET
-             existingAnswer.choiceText = $choiceText,
-             existingAnswer.rawScore = $rawScore,
-             existingAnswer.weightTier = $weightTier,
-             existingAnswer.measurement = $measurement,
-             existingAnswer.notes = $notes,
-             existingAnswer.created = $now,
-             existingAnswer.createdBy = $assessor,
-             existingAnswer.updated = $now,
-             existingAnswer.updatedBy = $assessor
-           ON MATCH SET
-             existingAnswer.choiceText = $choiceText,
-             existingAnswer.rawScore = $rawScore,
-             existingAnswer.weightTier = $weightTier,
-             existingAnswer.measurement = $measurement,
-             existingAnswer.notes = $notes,
-             existingAnswer.updated = $now,
-             existingAnswer.updatedBy = $assessor
-           MERGE (existingAnswer)-[:ANSWERS]->(question)`,
-          {
-            reviewId,
-            domainIndex: item.domainIndex,
-            questionIndex: item.questionIndex,
-            choiceText: item.choiceText,
-            rawScore: item.rawScore,
-            weightTier: item.weightTier,
-            measurement,
-            notes: item.notes || '',
-            now,
-            assessor: assessor || 'system',
-          }
-        );
-      }
-
-      // Recompute overall score
-      const overall = computeScore(allMeasurements, scoringConfiguration);
-
-      await database.query(
-        `MATCH (review:Review {reviewId: $reviewId})
-         SET review.classificationFactor = $classificationFactor,
-             review.rskRaw = $rskRaw,
-             review.rskNormalized = $rskNormalized,
-             review.rating = $rating,
-             review.updated = $now,
-             review.updatedBy = $updatedBy`,
-        {
-          reviewId,
-          classificationFactor,
-          rskRaw: overall.raw,
-          rskNormalized: overall.normalized,
-          rating: overall.rating,
-          now,
-          updatedBy: assessor || 'system',
-        }
+      const measurements = await upsertAnswers(
+        database, reviewId, answers, weightTierMap, classificationFactor, assessor, now
       );
 
-      answer = {
+      const overall = computeScore(measurements, scoringConfiguration);
+
+      await updateReviewScore(
+        database, reviewId, classificationFactor, overall, assessor, now
+      );
+
+      body = {
         reviewId,
         rskRaw: overall.raw,
         rskNormalized: overall.normalized,
         rating: overall.rating,
         answersProcessed: answers.length,
       };
-      response.json(answer);
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    response.status(statusCode).json(body);
   });
 
   return router;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// loadWeightTierMap — name → value lookup
+// ────────────────────────────────────────────────────────────────────
+
+async function loadWeightTierMap(database) {
+  const result = await database.query(
+    `MATCH (tier:WeightTier) RETURN tier.name AS name, tier.value AS value`
+  );
+
+  const tierMap = {};
+  for (const record of result) {
+    tierMap[record.name] = record.value;
+  }
+
+  return tierMap;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// upsertAnswers — MERGE each answer, return measurement array
+// ────────────────────────────────────────────────────────────────────
+
+async function upsertAnswers(database, reviewId, answers, weightTierMap, classificationFactor, assessor, now) {
+  const measurements = [];
+
+  for (const item of answers) {
+    const weightValue = weightTierMap[item.weightTier] ?? item.weightValue ?? 0;
+    const measurement = questionMeasurement(item.rawScore, weightValue, classificationFactor);
+    measurements.push(measurement);
+
+    await database.query(
+      `MATCH (review:Review {reviewId: $reviewId})
+       MATCH (question:Question {domainIndex: $domainIndex, questionIndex: $questionIndex})
+       MERGE (review)-[:CONTAINS]->(existingAnswer:Answer {domainIndex: $domainIndex, questionIndex: $questionIndex})
+       ON CREATE SET
+         existingAnswer.choiceText = $choiceText,
+         existingAnswer.rawScore = $rawScore,
+         existingAnswer.weightTier = $weightTier,
+         existingAnswer.measurement = $measurement,
+         existingAnswer.notes = $notes,
+         existingAnswer.created = $now,
+         existingAnswer.createdBy = $assessor,
+         existingAnswer.updated = $now,
+         existingAnswer.updatedBy = $assessor
+       ON MATCH SET
+         existingAnswer.choiceText = $choiceText,
+         existingAnswer.rawScore = $rawScore,
+         existingAnswer.weightTier = $weightTier,
+         existingAnswer.measurement = $measurement,
+         existingAnswer.notes = $notes,
+         existingAnswer.updated = $now,
+         existingAnswer.updatedBy = $assessor
+       MERGE (existingAnswer)-[:ANSWERS]->(question)`,
+      {
+        reviewId,
+        domainIndex: item.domainIndex,
+        questionIndex: item.questionIndex,
+        choiceText: item.choiceText,
+        rawScore: item.rawScore,
+        weightTier: item.weightTier,
+        measurement,
+        notes: item.notes || '',
+        now,
+        assessor: assessor || 'system',
+      }
+    );
+  }
+
+  return measurements;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// updateReviewScore — persist recomputed RSK score on the Review node
+// ────────────────────────────────────────────────────────────────────
+
+async function updateReviewScore(database, reviewId, classificationFactor, overall, assessor, now) {
+  await database.query(
+    `MATCH (review:Review {reviewId: $reviewId})
+     SET review.classificationFactor = $classificationFactor,
+         review.rskRaw = $rskRaw,
+         review.rskNormalized = $rskNormalized,
+         review.rating = $rating,
+         review.updated = $now,
+         review.updatedBy = $updatedBy`,
+    {
+      reviewId,
+      classificationFactor,
+      rskRaw: overall.raw,
+      rskNormalized: overall.normalized,
+      rating: overall.rating,
+      now,
+      updatedBy: assessor || 'system',
+    }
+  );
 }

@@ -14,7 +14,8 @@ export function createConfigRouter(database) {
 
   // ── Full questionnaire structure ───────────────────────────────
   router.get('/', async (_request, response) => {
-    let answer = null;
+    let statusCode = 200;
+    let body = null;
 
     try {
       const scoringConfiguration = await loadScoringConfiguration(database);
@@ -36,47 +37,75 @@ export function createConfigRouter(database) {
         `MATCH (tier:WeightTier) RETURN tier ORDER BY tier.value DESC`
       );
 
-      // Fetch policy and CSF lookup tables for tooltip enrichment
-      const policyResult = await database.query(
-        `MATCH (policy:Policy) RETURN policy.reference AS reference, policy.title AS title`
-      );
-      const policyTitleMap = {};
-      for (const record of policyResult) {
-        policyTitleMap[record.reference] = record.title;
-      }
+      const policyLookupMap = await loadPolicyLookup(database);
+      const csfTooltipMap = await loadCsfTooltips(database);
 
-      const csfResult = await database.query(
-        `MATCH (csf:CsfSubcategory) RETURN csf.code AS code, csf.category AS category, csf.function AS function`
-      );
-      const csfTooltipMap = {};
-      for (const record of csfResult) {
-        csfTooltipMap[record.code] = `${record.function}: ${record.category}`;
-      }
-
-      answer = {
+      body = {
         scoringConfiguration,
         classification: buildClassificationResponse(classificationResult),
-        domains: buildDomainsResponse(domainsResult, policyTitleMap, csfTooltipMap),
+        domains: buildDomainsResponse(domainsResult, policyLookupMap, csfTooltipMap),
         weightTiers: weightTiersResult.map((record) => record.tier || record),
       };
-
-      response.json(answer);
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    response.status(statusCode).json(body);
   });
 
   // ── Scoring config only ────────────────────────────────────────
   router.get('/scoring', async (_request, response) => {
+    let statusCode = 200;
+    let body = null;
+
     try {
-      const scoringConfiguration = await loadScoringConfiguration(database);
-      response.json(scoringConfiguration);
+      body = await loadScoringConfiguration(database);
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    response.status(statusCode).json(body);
   });
 
   return router;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// loadPolicyLookup — reference → { title, tag } map
+// ────────────────────────────────────────────────────────────────────
+
+async function loadPolicyLookup(database) {
+  const result = await database.query(
+    `MATCH (policy:Policy)
+     RETURN policy.reference AS reference, policy.title AS title, policy.tag AS tag`
+  );
+
+  const lookupMap = {};
+  for (const record of result) {
+    lookupMap[record.reference] = { title: record.title, tag: record.tag || 'Policy' };
+  }
+
+  return lookupMap;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// loadCsfTooltips — code → tooltip string map
+// ────────────────────────────────────────────────────────────────────
+
+async function loadCsfTooltips(database) {
+  const result = await database.query(
+    `MATCH (csf:CsfSubcategory)
+     RETURN csf.code AS code, csf.category AS category, csf.function AS function`
+  );
+
+  const tooltipMap = {};
+  for (const record of result) {
+    tooltipMap[record.code] = `${record.function}: ${record.category}`;
+  }
+
+  return tooltipMap;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -108,79 +137,103 @@ function buildClassificationResponse(records) {
 // buildDomainsResponse
 // ────────────────────────────────────────────────────────────────────
 
-function buildDomainsResponse(records, policyTitleMap, csfTooltipMap) {
+function buildDomainsResponse(records, policyLookupMap, csfTooltipMap) {
   const answer = records.map((record) => {
     const domain = record.domain || {};
-    const questions = (record.questions || [])
-      .sort((first, second) => (first.questionIndex ?? 0) - (second.questionIndex ?? 0))
-      .map((question) => ({
-        domainIndex: question.domainIndex,
-        questionIndex: question.questionIndex,
-        text: question.text,
-        weightTier: question.weightTier,
-        choices: question.choices || [],
-        choiceScores: question.choiceScores || [],
-        naScore: question.naScore ?? 1,
-      }));
-
-    const policyRefs = domain.policyRefs || [];
-    const csfRefs = domain.csfRefs || [];
-    const ferpaNote = domain.ferpaNote || null;
-    const soxNote = domain.soxNote || null;
-
-    // Build enriched complianceRefs with tooltips
-    const complianceRefs = [];
-
-    // NIST CSF
-    for (const code of csfRefs) {
-      complianceRefs.push({
-        tag: 'NIST',
-        code,
-        tooltip: csfTooltipMap[code] || null,
-      });
-    }
-
-    // FERPA — extract §-section numbers
-    if (ferpaNote) {
-      const sectionMatches = ferpaNote.match(/§[\d.]+/g);
-      if (sectionMatches) {
-        for (const section of sectionMatches) {
-          complianceRefs.push({ tag: 'FERPA', code: section, tooltip: ferpaNote });
-        }
-      }
-    }
-
-    // SOX — extract §-section numbers
-    if (soxNote) {
-      const sectionMatches = soxNote.match(/§[\d.]+/g);
-      if (sectionMatches) {
-        for (const section of sectionMatches) {
-          complianceRefs.push({ tag: 'SOX', code: section, tooltip: soxNote });
-        }
-      }
-    }
-
-    // Stride policies (ISP / IISP)
-    for (const code of policyRefs) {
-      const tag = code.startsWith('IISP') ? 'IISP' : 'ISP';
-      complianceRefs.push({
-        tag,
-        code,
-        tooltip: policyTitleMap[code] || null,
-      });
-    }
+    const questions = buildQuestionsResponse(record.questions || []);
+    const complianceRefs = buildComplianceReferences(domain, policyLookupMap, csfTooltipMap);
 
     return {
       domainIndex: domain.domainIndex,
       name: domain.name,
-      policyRefs,
-      csfRefs,
-      ferpaNote,
-      soxNote,
+      policyRefs: domain.policyRefs || [],
+      csfRefs: domain.csfRefs || [],
       complianceRefs,
       questions,
     };
   });
 
   return answer;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// buildQuestionsResponse — sort and shape question records
+// ────────────────────────────────────────────────────────────────────
+
+function buildQuestionsResponse(questions) {
+  const answer = questions
+    .sort((first, second) => (first.questionIndex ?? 0) - (second.questionIndex ?? 0))
+    .map((question) => ({
+      domainIndex: question.domainIndex,
+      questionIndex: question.questionIndex,
+      text: question.text,
+      weightTier: question.weightTier,
+      choices: question.choices || [],
+      choiceScores: question.choiceScores || [],
+      naScore: question.naScore ?? 1,
+    }));
+
+  return answer;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// buildComplianceReferences — CSF, note, and policy refs with tooltips
+// ────────────────────────────────────────────────────────────────────
+// Reads data-driven properties from the Domain node.  Client overlays
+// add policyRefs, *Note properties, etc. — this code is generic.
+
+function buildComplianceReferences(domain, policyLookupMap, csfTooltipMap) {
+  const references = [];
+
+  // NIST CSF subcategory references
+  for (const code of domain.csfRefs || []) {
+    references.push({ tag: 'NIST', code, tooltip: csfTooltipMap[code] || null });
+  }
+
+  // Compliance notes — generic: any property ending in "Note"
+  appendNoteReferences(domain, references);
+
+  // Client-supplied policies (tag comes from Policy node data)
+  appendPolicyReferences(domain.policyRefs || [], policyLookupMap, references);
+
+  return references;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// appendNoteReferences — extract §-sections from any *Note property
+// ────────────────────────────────────────────────────────────────────
+
+function appendNoteReferences(domain, references) {
+  const notePattern = /^(.+)Note$/;
+
+  for (const [property, value] of Object.entries(domain)) {
+    if (value == null) {
+      continue;
+    }
+    const match = property.match(notePattern);
+    if (match == null) {
+      continue;
+    }
+
+    const framework = match[1].toUpperCase();
+    const sections = value.match(/§[\d.]+/g) || [];
+    for (const section of sections) {
+      references.push({ tag: framework, code: section, tooltip: value });
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// appendPolicyReferences — enrich policy refs with tag and tooltip
+// ────────────────────────────────────────────────────────────────────
+
+function appendPolicyReferences(policyRefs, policyLookupMap, references) {
+  for (const code of policyRefs) {
+    const lookup = policyLookupMap[code] || {};
+    references.push({
+      tag: lookup.tag || 'Policy',
+      code,
+      tooltip: lookup.title || null,
+    });
+  }
 }

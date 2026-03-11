@@ -40,7 +40,7 @@ As of 2026-03-04: **82 nodes** (2 Answer nodes from test data; Policy nodes adde
 | `Question`             |    48 | domainIndex, questionIndex, text, weightTier, choices[], choiceScores[], naScore | composite `(domainIndex, questionIndex)` |
 | `Review`               |     1 | reviewId (UUID), applicationName, assessor, status, classificationChoice, classificationFactor, rskRaw, rskNormalized, rating, notes, active, created/updated/createdBy/updatedBy | `reviewId` |
 | `Answer`               |     2 | domainIndex, questionIndex, choiceText, rawScore, weightTier, measurement, notes, created/updated | composite index `(domainIndex, questionIndex)` |
-| `Policy`               |     0 | reference, title, description (seeded by client overlay)     | `reference`                  |
+| `Policy`               |     0 | reference, title, tag, description (seeded by client overlay) | `reference`                  |
 | `CsfSubcategory`       |    12 | code, description                                            | `code`                       |
 | `Gap`                  |     0 | gapId (future)                                               | `gapId`                      |
 | `SraSection`           |     0 | sectionId (future)                                           | `sectionId`                  |

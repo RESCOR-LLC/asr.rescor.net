@@ -6,6 +6,18 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
 // ────────────────────────────────────────────────────────────────────
+// sendResult — single response dispatch for all handlers
+// ────────────────────────────────────────────────────────────────────
+
+function sendResult(response, statusCode, body) {
+  if (body == null) {
+    response.status(statusCode).end();
+  } else {
+    response.status(statusCode).json(body);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
 // createReviewsRouter
 // ────────────────────────────────────────────────────────────────────
 
@@ -14,7 +26,8 @@ export function createReviewsRouter(database) {
 
   // ── List reviews ────────────────────────────────────────────────
   router.get('/', async (_request, response) => {
-    let answer = [];
+    let statusCode = 200;
+    let body = [];
 
     try {
       const result = await database.query(
@@ -23,16 +36,19 @@ export function createReviewsRouter(database) {
          RETURN review
          ORDER BY review.updated DESC`
       );
-      answer = result.map((record) => record.review || record);
-      response.json(answer);
+      body = result.map((record) => record.review || record);
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   // ── Get single review with answers ─────────────────────────────
   router.get('/:reviewId', async (request, response) => {
-    let answer = null;
+    let statusCode = 200;
+    let body = null;
 
     try {
       const result = await database.query(
@@ -43,25 +59,29 @@ export function createReviewsRouter(database) {
       );
 
       if (result.length === 0) {
-        response.status(404).json({ error: 'Review not found' });
+        statusCode = 404;
+        body = { error: 'Review not found' };
       } else {
         const row = result[0];
-        answer = {
+        body = {
           review: row.review || row,
           answers: (row.answers || []).filter(
             (item) => item.answer !== null && item.question !== null
           ),
         };
-        response.json(answer);
       }
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   // ── Create review ──────────────────────────────────────────────
   router.post('/', async (request, response) => {
-    let answer = null;
+    let statusCode = 201;
+    let body = null;
     const reviewId = uuidv4();
     const now = new Date().toISOString();
 
@@ -93,16 +113,19 @@ export function createReviewsRouter(database) {
           now,
         }
       );
-      answer = result[0].review || result[0];
-      response.status(201).json(answer);
+      body = result[0].review || result[0];
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   // ── Update classification ──────────────────────────────────────
   router.patch('/:reviewId/classification', async (request, response) => {
-    let answer = null;
+    let statusCode = 200;
+    let body = null;
 
     try {
       const result = await database.query(
@@ -122,19 +145,23 @@ export function createReviewsRouter(database) {
       );
 
       if (result.length === 0) {
-        response.status(404).json({ error: 'Review not found' });
+        statusCode = 404;
+        body = { error: 'Review not found' };
       } else {
-        answer = result[0].review || result[0];
-        response.json(answer);
+        body = result[0].review || result[0];
       }
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   // ── Submit review ──────────────────────────────────────────────
   router.post('/:reviewId/submit', async (request, response) => {
-    let answer = null;
+    let statusCode = 200;
+    let body = null;
 
     try {
       const result = await database.query(
@@ -152,18 +179,24 @@ export function createReviewsRouter(database) {
       );
 
       if (result.length === 0) {
-        response.status(404).json({ error: 'Review not found' });
+        statusCode = 404;
+        body = { error: 'Review not found' };
       } else {
-        answer = result[0].review || result[0];
-        response.json(answer);
+        body = result[0].review || result[0];
       }
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   // ── Soft delete ────────────────────────────────────────────────
   router.delete('/:reviewId', async (request, response) => {
+    let statusCode = 204;
+    let body = null;
+
     try {
       await database.query(
         `MATCH (review:Review {reviewId: $reviewId})
@@ -176,15 +209,18 @@ export function createReviewsRouter(database) {
           assessor: request.body.assessor || 'system',
         }
       );
-      response.status(204).end();
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   // ── Rename review ──────────────────────────────────────────────
   router.patch('/:reviewId/rename', async (request, response) => {
-    let answer = null;
+    let statusCode = 200;
+    let body = null;
 
     try {
       const result = await database.query(
@@ -202,14 +238,17 @@ export function createReviewsRouter(database) {
       );
 
       if (result.length === 0) {
-        response.status(404).json({ error: 'Review not found' });
+        statusCode = 404;
+        body = { error: 'Review not found' };
       } else {
-        answer = result[0].review || result[0];
-        response.json(answer);
+        body = result[0].review || result[0];
       }
     } catch (error) {
-      response.status(500).json({ error: error.message });
+      statusCode = 500;
+      body = { error: error.message };
     }
+
+    sendResult(response, statusCode, body);
   });
 
   return router;
