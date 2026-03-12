@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { loadScoringConfiguration } from '../scoring.mjs';
 
 // ────────────────────────────────────────────────────────────────────
 // sendResult — single response dispatch for all handlers
@@ -53,7 +54,8 @@ export function createReviewsRouter(database) {
     try {
       const result = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})
-         OPTIONAL MATCH (review)-[:CONTAINS]->(existingAnswer:Answer)-[:ANSWERS]->(question:Question)
+         OPTIONAL MATCH (review)-[:CONTAINS]->(existingAnswer:Answer)
+         OPTIONAL MATCH (existingAnswer)-[:ANSWERS]->(question:Question)
          RETURN review, collect({answer: existingAnswer, question: question}) AS answers`,
         { reviewId: request.params.reviewId }
       );
@@ -66,7 +68,7 @@ export function createReviewsRouter(database) {
         body = {
           review: row.review || row,
           answers: (row.answers || []).filter(
-            (item) => item.answer !== null && item.question !== null
+            (item) => item.answer !== null
           ),
         };
       }
@@ -86,6 +88,9 @@ export function createReviewsRouter(database) {
     const now = new Date().toISOString();
 
     try {
+      const scoringConfiguration = await loadScoringConfiguration(database);
+      const questionnaireVersion = scoringConfiguration.questionnaireVersion || null;
+
       const result = await database.query(
         `CREATE (review:Review {
            reviewId: $reviewId,
@@ -94,6 +99,7 @@ export function createReviewsRouter(database) {
            status: 'DRAFT',
            classificationChoice: null,
            classificationFactor: null,
+           questionnaireVersion: $questionnaireVersion,
            rskRaw: 0,
            rskNormalized: 0.0,
            rating: 'Low',
@@ -110,6 +116,7 @@ export function createReviewsRouter(database) {
           applicationName: request.body.applicationName,
           assessor: request.body.assessor,
           notes: request.body.notes || '',
+          questionnaireVersion,
           now,
         }
       );

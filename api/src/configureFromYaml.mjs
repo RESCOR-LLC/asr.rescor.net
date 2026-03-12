@@ -15,6 +15,7 @@
 // ════════════════════════════════════════════════════════════════════
 
 import { readFileSync } from 'fs';
+import { createHash } from 'crypto';
 import { resolve } from 'path';
 import yaml from 'js-yaml';
 import { createConfiguration, createDatabase } from './database.mjs';
@@ -228,6 +229,7 @@ function generateDomainStatements(data) {
                 question.naScore       = $naScore,
                 question.applicability = $applicability,
                 question.guidance      = $guidance,
+                question.active        = true,
                 question.updated       = datetime()
         `,
         params: {
@@ -276,17 +278,18 @@ function generateCleanupStatements(data) {
   const statements = [];
   const domainCount = data.domains.length;
 
-  // Remove domains beyond the current count
+  // Soft-deactivate domains beyond the current count (preserve for old reviews)
   statements.push({
     cypher: `
       MATCH (domain:Domain)
       WHERE domain.domainIndex >= $domainCount
-      DETACH DELETE domain
+      SET domain.active = false,
+          domain.updated = datetime()
     `,
     params: { domainCount },
   });
 
-  // Remove excess questions per domain
+  // Soft-deactivate excess questions per domain (preserve Answer → Question links)
   for (let domainIndex = 0; domainIndex < domainCount; domainIndex++) {
     const questionCount = data.domains[domainIndex].questions.length;
 
@@ -294,7 +297,8 @@ function generateCleanupStatements(data) {
       cypher: `
         MATCH (question:Question {domainIndex: $domainIndex})
         WHERE question.questionIndex >= $questionCount
-        DETACH DELETE question
+        SET question.active = false,
+            question.updated = datetime()
       `,
       params: { domainIndex, questionCount },
     });
@@ -342,7 +346,18 @@ async function configureFromYaml() {
   const cleanupStatements = generateCleanupStatements(data);
   const allStatements = [...domainStatements, ...cleanupStatements];
 
-  console.log(`Generated ${allStatements.length} Cypher statements`);
+  // Stamp questionnaireVersion on ScoringConfig singleton
+  const questionnaireVersion = createHash('sha256').update(raw).digest('hex').slice(0, 12);
+  allStatements.push({
+    cypher: `
+      MATCH (config:ScoringConfig {configId: 'default'})
+      SET config.questionnaireVersion = $questionnaireVersion,
+          config.updated = datetime()
+    `,
+    params: { questionnaireVersion },
+  });
+
+  console.log(`Generated ${allStatements.length} Cypher statements (version: ${questionnaireVersion})`);
 
   // Connect and execute
   const configuration = await createConfiguration();
@@ -365,6 +380,7 @@ async function configureFromYaml() {
   console.log(`  Classification question: ${hasClassification ? 'yes' : 'no'}`);
   console.log(`  Deployment question: ${hasDeployment ? 'yes' : 'no'}`);
   console.log(`  Deployment archetypes: ${archetypeCount}`);
+  console.log(`  Questionnaire version: ${questionnaireVersion}`);
 
   await database.disconnect();
   console.log('Done.');

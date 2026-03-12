@@ -32,6 +32,7 @@ export async function loadScoringConfiguration(database) {
         rawMax: config.rawMax ?? 134,
         ratingThresholds: config.ratingThresholds ?? [25, 50, 75],
         ratingLabels: config.ratingLabels ?? ['Low', 'Moderate', 'Elevated', 'Critical'],
+        questionnaireVersion: config.questionnaireVersion ?? null,
       };
     } else {
       answer = {
@@ -39,6 +40,7 @@ export async function loadScoringConfiguration(database) {
         rawMax: 134,
         ratingThresholds: [25, 50, 75],
         ratingLabels: ['Low', 'Moderate', 'Elevated', 'Critical'],
+        questionnaireVersion: null,
       };
     }
 

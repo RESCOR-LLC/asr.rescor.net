@@ -92,6 +92,7 @@ async function upsertAnswers(database, reviewId, answers, weightTierMap, classif
        MERGE (review)-[:CONTAINS]->(existingAnswer:Answer {domainIndex: $domainIndex, questionIndex: $questionIndex})
        ON CREATE SET
          existingAnswer.choiceText = $choiceText,
+         existingAnswer.questionText = question.text,
          existingAnswer.rawScore = $rawScore,
          existingAnswer.weightTier = $weightTier,
          existingAnswer.measurement = $measurement,
@@ -102,6 +103,7 @@ async function upsertAnswers(database, reviewId, answers, weightTierMap, classif
          existingAnswer.updatedBy = $assessor
        ON MATCH SET
          existingAnswer.choiceText = $choiceText,
+         existingAnswer.questionText = question.text,
          existingAnswer.rawScore = $rawScore,
          existingAnswer.weightTier = $weightTier,
          existingAnswer.measurement = $measurement,

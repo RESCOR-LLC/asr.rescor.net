@@ -28,7 +28,9 @@ export function createConfigRouter(database) {
 
       const domainsResult = await database.query(
         `MATCH (domain:Domain)
+         WHERE domain.active = true
          OPTIONAL MATCH (domain)<-[:BELONGS_TO]-(question:Question)
+         WHERE question.active = true
          RETURN domain, collect(question) AS questions
          ORDER BY domain.domainIndex`
       );
@@ -42,6 +44,7 @@ export function createConfigRouter(database) {
 
       body = {
         scoringConfiguration,
+        questionnaireVersion: scoringConfiguration.questionnaireVersion || null,
         classification: buildClassificationResponse(classificationResult),
         domains: buildDomainsResponse(domainsResult, policyLookupMap, csfTooltipMap),
         weightTiers: weightTiersResult.map((record) => record.tier || record),

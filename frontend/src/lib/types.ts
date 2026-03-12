@@ -49,6 +49,7 @@ export interface WeightTier {
 
 export interface AppConfiguration {
   scoringConfiguration: import('./scoring').ScoringConfiguration;
+  questionnaireVersion: string | null;
   classification: ClassificationConfig;
   domains: DomainConfig[];
   weightTiers: WeightTier[];
@@ -59,6 +60,7 @@ export interface AnswerState {
   questionIndex: number;
   choiceIndex: number | null;    // null = unanswered, -1 = N/A
   choiceText: string;
+  questionText?: string;         // snapshot from answer-time (version resilience)
   rawScore: number;
   weightTier: string;
   measurement: number;
@@ -72,6 +74,7 @@ export interface ReviewDetail {
   status: string;
   classificationChoice: string | null;
   classificationFactor: number | null;
+  questionnaireVersion: string | null;
   rskRaw: number;
   rskNormalized: number;
   rating: string;

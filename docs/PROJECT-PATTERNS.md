@@ -104,6 +104,35 @@ All parameters loaded from Neo4j at runtime — zero hardcoded constants.
 
 ---
 
+## Questionnaire Version Resilience
+
+When YAML configuration changes, existing reviews must not be corrupted.
+
+### Design Principles
+
+1. **Answer self-containment** — Each Answer snapshots `questionText` (the question wording at answer-time) so historical reviews are readable even if the question is later reworded or removed.
+2. **Soft-delete, not hard-delete** — `configureFromYaml` sets `active = false` on deprecated Questions/Domains instead of `DETACH DELETE`. This preserves `Answer → Question` graph links for old reviews.
+3. **Version stamp** — A SHA-256 fingerprint (12 hex chars) of the YAML content is stored on `ScoringConfig.questionnaireVersion` and copied to `Review.questionnaireVersion` at review creation time.
+4. **Active-only serving** — The `/api/config` endpoint filters `WHERE domain.active = true` and `WHERE question.active = true`, so only current-version questions appear in the assessment UI.
+
+### What Happens on YAML Reconfiguration
+
+| Scenario | Behaviour |
+|---|---|
+| Question text or choices modified | MERGE updates Question in-place; existing Answers retain their snapshotted `questionText` and `choiceText` |
+| Question removed (count reduced) | Question gets `active = false`; old Answer → Question link preserved |
+| Domain removed | Domain gets `active = false`; child Questions stay linked |
+| New questions added | New Question nodes created with `active = true` |
+| Re-added question (same index) | MERGE restores `active = true` on existing node |
+
+### Invariants
+
+- Answers are **immutable snapshots** — `choiceText`, `rawScore`, `weightTier`, `measurement`, `questionText` frozen at submission time.
+- A submitted review's RSK score never changes unless explicitly recalculated.
+- `Review.questionnaireVersion` records which YAML hash the review was created against.
+
+---
+
 ## Quick Reference — CLI
 
 ```bash
@@ -114,7 +143,7 @@ npm run dev                       # from workspace root
 npm run cypher:setup -w api       # runs all 3 cypher files
 
 # Seed with client overlay (e.g., Stride)
-ASR_OVERLAY_CYPHER_DIR=../asr.k12.com/cypher npm run cypher:setup -w api
+npm run cypher:setup -w api -- --overlay ../asr.k12.com/cypher
 
 # Start API only
 npm run dev -w api               # node --watch api/src/server.mjs
