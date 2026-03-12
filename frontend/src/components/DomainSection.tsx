@@ -29,6 +29,7 @@ interface DomainSectionProps {
   classificationFactor: number;
   disabled: boolean;
   dampingFactor: number;
+  deploymentArchetype: string | null;
 }
 
 function answerKey(domainIndex: number, questionIndex: number): string {
@@ -43,20 +44,29 @@ export default function DomainSection({
   classificationFactor,
   disabled,
   dampingFactor,
+  deploymentArchetype,
 }: DomainSectionProps) {
   const [expanded, setExpanded] = useState(true);
+
+  // Filter questions by deployment applicability
+  const visibleQuestions = domain.questions.filter((question) => {
+    const applicability = (question as { applicability?: string[] }).applicability ?? [];
+    if (applicability.length === 0) return true;
+    if (!deploymentArchetype) return true;
+    return applicability.includes(deploymentArchetype);
+  });
 
   // Collect answered measurements for this section
   const sectionMeasurements: number[] = [];
   let answeredCount = 0;
-  for (const question of domain.questions) {
+  for (const question of visibleQuestions) {
     const state = answers.get(answerKey(question.domainIndex, question.questionIndex));
     if (state != null && state.choiceIndex !== null) {
       answeredCount++;
       sectionMeasurements.push(state.measurement);
     }
   }
-  const totalCount = domain.questions.length;
+  const totalCount = visibleQuestions.length;
   const sectionScore = rskAggregate(sectionMeasurements, dampingFactor);
   const hasSectionScore = answeredCount > 0;
 
@@ -104,7 +114,7 @@ export default function DomainSection({
         </Box>
       </AccordionSummary>
       <AccordionDetails sx={{ pt: 0 }}>
-        {domain.questions.map((question) => {
+        {visibleQuestions.map((question) => {
           const key = answerKey(question.domainIndex, question.questionIndex);
           const answerState = answers.get(key) ?? createEmptyAnswer(question);
           const weightValue = weightTierMap[question.weightTier] ?? 0;

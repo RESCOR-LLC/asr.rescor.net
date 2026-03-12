@@ -26,6 +26,24 @@ export function createConfigRouter(database) {
          ORDER BY choice.sortOrder`
       );
 
+      const sourceResult = await database.query(
+        `MATCH (sourceQuestion:SourceQuestion)-[:HAS_CHOICE]->(choice:SourceChoice)
+         RETURN sourceQuestion, choice
+         ORDER BY choice.sortOrder`
+      );
+
+      const environmentResult = await database.query(
+        `MATCH (environmentQuestion:EnvironmentQuestion)-[:HAS_CHOICE]->(choice:EnvironmentChoice)
+         RETURN environmentQuestion, choice
+         ORDER BY choice.sortOrder`
+      );
+
+      const archetypeResult = await database.query(
+        `MATCH (archetype:DeploymentArchetype)
+         RETURN archetype
+         ORDER BY archetype.sortOrder`
+      );
+
       const domainsResult = await database.query(
         `MATCH (domain:Domain)
          WHERE domain.active = true
@@ -46,6 +64,9 @@ export function createConfigRouter(database) {
         scoringConfiguration,
         questionnaireVersion: scoringConfiguration.questionnaireVersion || null,
         classification: buildClassificationResponse(classificationResult),
+        source: buildTranscendentalResponse(sourceResult, 'sourceQuestion', 'source'),
+        environment: buildTranscendentalResponse(environmentResult, 'environmentQuestion', 'environment'),
+        archetypes: archetypeResult.map((record) => record.archetype || record),
         domains: buildDomainsResponse(domainsResult, policyLookupMap, csfTooltipMap),
         weightTiers: weightTiersResult.map((record) => record.tier || record),
       };
@@ -137,6 +158,31 @@ function buildClassificationResponse(records) {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// buildTranscendentalResponse — generic source/environment question
+// ────────────────────────────────────────────────────────────────────
+
+function buildTranscendentalResponse(records, questionKey, codeKey) {
+  let answer = { text: '', choices: [] };
+
+  if (records.length > 0) {
+    const firstRecord = records[0];
+    const question = firstRecord[questionKey] || {};
+    answer.text = question.text || '';
+    answer.naAllowed = question.naAllowed ?? false;
+    answer.choices = records.map((record) => {
+      const choice = record.choice || {};
+      return {
+        text: choice.text,
+        [codeKey]: choice[codeKey],
+        sortOrder: choice.sortOrder,
+      };
+    });
+  }
+
+  return answer;
+}
+
+// ────────────────────────────────────────────────────────────────────
 // buildDomainsResponse
 // ────────────────────────────────────────────────────────────────────
 
@@ -174,6 +220,7 @@ function buildQuestionsResponse(questions) {
       choices: question.choices || [],
       choiceScores: question.choiceScores || [],
       naScore: question.naScore ?? 1,
+      applicability: question.applicability || [],
     }));
 
   return answer;

@@ -37,3 +37,7 @@ See [docs/PROJECT-PATTERNS.md](docs/PROJECT-PATTERNS.md) for ASR-specific conven
 - Dev: `npm run dev` (root), `npm run cypher:setup -w api` (seed Neo4j)
 - Dev with client overlay: `npm run cypher:setup -w api -- --overlay /abs/path/to/overlay`
 - Dev with client YAML: `npm run cypher:configure -w api -- /abs/path/to/asr_questions.yaml`
+
+## Completed Plans
+
+- [Source × Environment Deployment Taxonomy](docs/PLAN-SOURCE-ENVIRONMENT-TAXONOMY.md) — 9 compound archetypes (Source × Environment)

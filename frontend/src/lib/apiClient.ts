@@ -129,3 +129,21 @@ export async function updateClassification(
   });
   return handleResponse(response);
 }
+
+// ────────────────────────────────────────────────────────────────────
+// updateDeployment — set source × environment on a review
+// ────────────────────────────────────────────────────────────────────
+
+export async function updateDeployment(
+  reviewId: string,
+  sourceChoice: string,
+  environmentChoice: string,
+  assessor: string,
+): Promise<unknown> {
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}/deployment`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceChoice, environmentChoice, assessor }),
+  });
+  return handleResponse(response);
+}

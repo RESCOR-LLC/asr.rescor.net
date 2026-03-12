@@ -99,6 +99,9 @@ export function createReviewsRouter(database) {
            status: 'DRAFT',
            classificationChoice: null,
            classificationFactor: null,
+           sourceChoice: null,
+           environmentChoice: null,
+           deploymentArchetype: null,
            questionnaireVersion: $questionnaireVersion,
            rskRaw: 0,
            rskNormalized: 0.0,
@@ -146,6 +149,51 @@ export function createReviewsRouter(database) {
           reviewId: request.params.reviewId,
           choiceText: request.body.choiceText,
           factor: request.body.factor,
+          now: new Date().toISOString(),
+          assessor: request.body.assessor || 'system',
+        }
+      );
+
+      if (result.length === 0) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+      } else {
+        body = result[0].review || result[0];
+      }
+    } catch (error) {
+      statusCode = 500;
+      body = { error: error.message };
+    }
+
+    sendResult(response, statusCode, body);
+  });
+
+  // ── Update deployment (source × environment) ──────────────────
+  router.patch('/:reviewId/deployment', async (request, response) => {
+    let statusCode = 200;
+    let body = null;
+
+    try {
+      const sourceChoice = request.body.sourceChoice || null;
+      const environmentChoice = request.body.environmentChoice || null;
+      const deploymentArchetype =
+        sourceChoice && environmentChoice
+          ? `${sourceChoice}_${environmentChoice}`
+          : null;
+
+      const result = await database.query(
+        `MATCH (review:Review {reviewId: $reviewId})
+         SET review.sourceChoice         = $sourceChoice,
+             review.environmentChoice    = $environmentChoice,
+             review.deploymentArchetype  = $deploymentArchetype,
+             review.updated              = $now,
+             review.updatedBy            = $assessor
+         RETURN review`,
+        {
+          reviewId: request.params.reviewId,
+          sourceChoice,
+          environmentChoice,
+          deploymentArchetype,
           now: new Date().toISOString(),
           assessor: request.body.assessor || 'system',
         }

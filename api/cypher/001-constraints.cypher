@@ -51,6 +51,22 @@ CREATE CONSTRAINT deployment_choice_archetype_unique IF NOT EXISTS
   FOR (choice:DeploymentChoice)
   REQUIRE choice.archetype IS UNIQUE;
 
+CREATE CONSTRAINT source_question_id_unique IF NOT EXISTS
+  FOR (question:SourceQuestion)
+  REQUIRE question.questionId IS UNIQUE;
+
+CREATE CONSTRAINT source_choice_source_unique IF NOT EXISTS
+  FOR (choice:SourceChoice)
+  REQUIRE choice.source IS UNIQUE;
+
+CREATE CONSTRAINT environment_question_id_unique IF NOT EXISTS
+  FOR (question:EnvironmentQuestion)
+  REQUIRE question.questionId IS UNIQUE;
+
+CREATE CONSTRAINT environment_choice_environment_unique IF NOT EXISTS
+  FOR (choice:EnvironmentChoice)
+  REQUIRE choice.environment IS UNIQUE;
+
 // ─── Existence Constraints (Enterprise Edition only) ─────────────
 // Uncomment when running Neo4j Enterprise:
 //

@@ -36,6 +36,20 @@ function validateYaml(data) {
 
   const validArchetypes = new Set(Object.keys(data.deployment_archetypes || {}));
 
+  // Validate source × environment archetype structure
+  for (const [code, meta] of Object.entries(data.deployment_archetypes || {})) {
+    if (!meta.source || !meta.environment) {
+      errors.push(`Archetype "${code}": must have "source" and "environment" properties.`);
+    }
+  }
+
+  if (!data.source_question || !Array.isArray(data.source_question.choices)) {
+    errors.push('YAML must have a "source_question" with a "choices" array.');
+  }
+  if (!data.environment_question || !Array.isArray(data.environment_question.choices)) {
+    errors.push('YAML must have an "environment_question" with a "choices" array.');
+  }
+
   for (let domainIndex = 0; domainIndex < (data.domains || []).length; domainIndex++) {
     const domain = data.domains[domainIndex];
     const domainLabel = `Domain ${domainIndex} (${domain.name || 'unnamed'})`;
@@ -143,29 +157,55 @@ function generateDomainStatements(data) {
     });
   }
 
-  // ── Deployment question (transcendental) ─────────────────────────
-  const deploymentQuestion = data.deployment_question;
-  if (deploymentQuestion) {
-    const choiceParams = deploymentQuestion.choices.map((choice, index) => ({
+  // ── Source question (transcendental) ────────────────────────────
+  const sourceQuestion = data.source_question;
+  if (sourceQuestion) {
+    const choiceParams = sourceQuestion.choices.map((choice, index) => ({
       text: choice.text,
-      archetype: choice.archetype,
+      source: choice.source,
       sortOrder: index,
     }));
 
     statements.push({
       cypher: `
-        MERGE (deploymentQuestion:DeploymentQuestion {questionId: 'deployment'})
-          SET deploymentQuestion.text      = $text,
-              deploymentQuestion.naAllowed = false,
-              deploymentQuestion.updated   = datetime()
-        WITH deploymentQuestion
+        MERGE (sourceQuestion:SourceQuestion {questionId: 'source'})
+          SET sourceQuestion.text      = $text,
+              sourceQuestion.naAllowed = false,
+              sourceQuestion.updated   = datetime()
+        WITH sourceQuestion
         UNWIND $choices AS choice
-        MERGE (deploymentQuestion)-[:HAS_CHOICE]->(c:DeploymentChoice {archetype: choice.archetype})
+        MERGE (sourceQuestion)-[:HAS_CHOICE]->(c:SourceChoice {source: choice.source})
           SET c.text      = choice.text,
               c.sortOrder = choice.sortOrder,
               c.updated   = datetime()
       `,
-      params: { text: deploymentQuestion.text, choices: choiceParams },
+      params: { text: sourceQuestion.text, choices: choiceParams },
+    });
+  }
+
+  // ── Environment question (transcendental) ─────────────────────
+  const environmentQuestion = data.environment_question;
+  if (environmentQuestion) {
+    const choiceParams = environmentQuestion.choices.map((choice, index) => ({
+      text: choice.text,
+      environment: choice.environment,
+      sortOrder: index,
+    }));
+
+    statements.push({
+      cypher: `
+        MERGE (environmentQuestion:EnvironmentQuestion {questionId: 'environment'})
+          SET environmentQuestion.text      = $text,
+              environmentQuestion.naAllowed = false,
+              environmentQuestion.updated   = datetime()
+        WITH environmentQuestion
+        UNWIND $choices AS choice
+        MERGE (environmentQuestion)-[:HAS_CHOICE]->(c:EnvironmentChoice {environment: choice.environment})
+          SET c.text      = choice.text,
+              c.sortOrder = choice.sortOrder,
+              c.updated   = datetime()
+      `,
+      params: { text: environmentQuestion.text, choices: choiceParams },
     });
   }
 
@@ -177,6 +217,8 @@ function generateDomainStatements(data) {
         MERGE (archetype:DeploymentArchetype {code: $code})
           SET archetype.label       = $label,
               archetype.description = $description,
+              archetype.source      = $source,
+              archetype.environment = $environment,
               archetype.sortOrder   = $sortOrder,
               archetype.updated     = datetime()
       `,
@@ -184,6 +226,8 @@ function generateDomainStatements(data) {
         code,
         label: meta.label,
         description: meta.description,
+        source: meta.source,
+        environment: meta.environment,
         sortOrder: Object.keys(archetypes).indexOf(code),
       },
     });
@@ -374,11 +418,13 @@ async function configureFromYaml() {
   // Summary
   const archetypeCount = Object.keys(data.deployment_archetypes || {}).length;
   const hasClassification = !!data.classification_question;
-  const hasDeployment = !!data.deployment_question;
+  const hasSource = !!data.source_question;
+  const hasEnvironment = !!data.environment_question;
   console.log(`\nConfiguration applied:`);
   console.log(`  ${domainCount} domains, ${questionCount} questions`);
   console.log(`  Classification question: ${hasClassification ? 'yes' : 'no'}`);
-  console.log(`  Deployment question: ${hasDeployment ? 'yes' : 'no'}`);
+  console.log(`  Source question: ${hasSource ? 'yes' : 'no'}`);
+  console.log(`  Environment question: ${hasEnvironment ? 'yes' : 'no'}`);
   console.log(`  Deployment archetypes: ${archetypeCount}`);
   console.log(`  Questionnaire version: ${questionnaireVersion}`);
 

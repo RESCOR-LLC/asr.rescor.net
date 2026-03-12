@@ -15,6 +15,8 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import ClassificationBanner from '../components/ClassificationBanner';
+import SourceBanner from '../components/SourceBanner';
+import EnvironmentBanner from '../components/EnvironmentBanner';
 import DomainSection from '../components/DomainSection';
 import ScoreDashboard from '../components/ScoreDashboard';
 import ReviewActions from '../components/ReviewActions';
@@ -24,6 +26,7 @@ import {
   saveAnswers,
   submitReview,
   updateClassification,
+  updateDeployment,
 } from '../lib/apiClient';
 import { computeScore } from '../lib/scoring';
 import { exportReviewToExcel } from '../lib/exportExcel';
@@ -32,6 +35,8 @@ import type {
   AppConfiguration,
   AnswerState,
   ClassificationChoice,
+  SourceChoice,
+  EnvironmentChoice,
   ReviewDetail,
 } from '../lib/types';
 import type { ScoringConfiguration } from '../lib/scoring';
@@ -60,6 +65,16 @@ export default function ReviewPage() {
   const [review, setReview] = useState<ReviewDetail | null>(null);
   const [classificationChoice, setClassificationChoice] = useState<string | null>(null);
   const [classificationFactor, setClassificationFactor] = useState<number>(0);
+
+  // ── Deployment state (source × environment) ───────────────────
+  const [sourceChoice, setSourceChoice] = useState<string | null>(null);
+  const [environmentChoice, setEnvironmentChoice] = useState<string | null>(null);
+  const deploymentArchetype = useMemo(() => {
+    if (sourceChoice && environmentChoice) {
+      return `${sourceChoice}_${environmentChoice}`;
+    }
+    return null;
+  }, [sourceChoice, environmentChoice]);
 
   // ── Answer state ──────────────────────────────────────────────
   const [answers, setAnswers] = useState<Map<string, AnswerState>>(new Map());
@@ -110,10 +125,15 @@ export default function ReviewPage() {
     if (!configuration) return 0;
     let count = 0;
     for (const domain of configuration.domains) {
-      count += domain.questions.length;
+      for (const question of domain.questions) {
+        const applicability = question.applicability ?? [];
+        if (applicability.length === 0 || !deploymentArchetype || applicability.includes(deploymentArchetype)) {
+          count++;
+        }
+      }
     }
     return count;
-  }, [configuration]);
+  }, [configuration, deploymentArchetype]);
 
   // ── Load configuration + review on mount ──────────────────────
   useEffect(() => {
@@ -136,6 +156,10 @@ export default function ReviewPage() {
             status: (detail.review.status as string) || 'DRAFT',
             classificationChoice: (detail.review.classificationChoice as string) || null,
             classificationFactor: (detail.review.classificationFactor as number) || null,
+            sourceChoice: (detail.review.sourceChoice as string) || null,
+            environmentChoice: (detail.review.environmentChoice as string) || null,
+            deploymentArchetype: (detail.review.deploymentArchetype as string) || null,
+            questionnaireVersion: (detail.review.questionnaireVersion as string) || null,
             rskRaw: (detail.review.rskRaw as number) || 0,
             rskNormalized: (detail.review.rskNormalized as number) || 0,
             rating: (detail.review.rating as string) || 'Low',
@@ -146,6 +170,8 @@ export default function ReviewPage() {
           setReview(reviewRecord);
           setClassificationChoice(reviewRecord.classificationChoice);
           setClassificationFactor(reviewRecord.classificationFactor ?? 0);
+          setSourceChoice(reviewRecord.sourceChoice);
+          setEnvironmentChoice(reviewRecord.environmentChoice);
 
           // Hydrate answers from server
           const answerMap = new Map<string, AnswerState>();
@@ -227,6 +253,36 @@ export default function ReviewPage() {
       });
     },
     [weightTierMap, reviewId, review],
+  );
+
+  // ── Source change ─────────────────────────────────────────────
+  const handleSourceChange = useCallback(
+    (choice: SourceChoice) => {
+      setSourceChoice(choice.source);
+      setHasUnsavedChanges(true);
+
+      if (reviewId && review && environmentChoice) {
+        updateDeployment(reviewId, choice.source, environmentChoice, review.assessor).catch(
+          (error) => setErrorMessage((error as Error).message),
+        );
+      }
+    },
+    [reviewId, review, environmentChoice],
+  );
+
+  // ── Environment change ────────────────────────────────────────
+  const handleEnvironmentChange = useCallback(
+    (choice: EnvironmentChoice) => {
+      setEnvironmentChoice(choice.environment);
+      setHasUnsavedChanges(true);
+
+      if (reviewId && review && sourceChoice) {
+        updateDeployment(reviewId, sourceChoice, choice.environment, review.assessor).catch(
+          (error) => setErrorMessage((error as Error).message),
+        );
+      }
+    },
+    [reviewId, review, sourceChoice],
   );
 
   // ── Answer change ─────────────────────────────────────────────
@@ -393,6 +449,20 @@ export default function ReviewPage() {
               disabled={isSubmitted}
             />
 
+            <SourceBanner
+              source={configuration.source}
+              selectedSource={sourceChoice}
+              onSourceChange={handleSourceChange}
+              disabled={isSubmitted}
+            />
+
+            <EnvironmentBanner
+              environment={configuration.environment}
+              selectedEnvironment={environmentChoice}
+              onEnvironmentChange={handleEnvironmentChange}
+              disabled={isSubmitted}
+            />
+
             {classificationFactor === 0 && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Select a risk classification above to enable scoring.
@@ -409,6 +479,7 @@ export default function ReviewPage() {
                 classificationFactor={classificationFactor}
                 disabled={isSubmitted}
                 dampingFactor={configuration.scoringConfiguration.dampingFactor}
+                deploymentArchetype={deploymentArchetype}
               />
             ))}
           </Grid>

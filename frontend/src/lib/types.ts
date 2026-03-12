@@ -22,6 +22,7 @@ export interface QuestionConfig {
   choices: string[];
   choiceScores: number[];
   naScore: number;
+  applicability: string[];
 }
 
 export interface ComplianceRef {
@@ -47,10 +48,46 @@ export interface WeightTier {
   value: number;
 }
 
+export interface SourceChoice {
+  text: string;
+  source: string;
+  sortOrder: number;
+}
+
+export interface SourceConfig {
+  text: string;
+  choices: SourceChoice[];
+  naAllowed: boolean;
+}
+
+export interface EnvironmentChoice {
+  text: string;
+  environment: string;
+  sortOrder: number;
+}
+
+export interface EnvironmentConfig {
+  text: string;
+  choices: EnvironmentChoice[];
+  naAllowed: boolean;
+}
+
+export interface DeploymentArchetype {
+  code: string;
+  label: string;
+  description: string;
+  source: string;
+  environment: string;
+  sortOrder: number;
+}
+
 export interface AppConfiguration {
   scoringConfiguration: import('./scoring').ScoringConfiguration;
   questionnaireVersion: string | null;
   classification: ClassificationConfig;
+  source: SourceConfig;
+  environment: EnvironmentConfig;
+  archetypes: DeploymentArchetype[];
   domains: DomainConfig[];
   weightTiers: WeightTier[];
 }
@@ -74,6 +111,9 @@ export interface ReviewDetail {
   status: string;
   classificationChoice: string | null;
   classificationFactor: number | null;
+  sourceChoice: string | null;
+  environmentChoice: string | null;
+  deploymentArchetype: string | null;
   questionnaireVersion: string | null;
   rskRaw: number;
   rskNormalized: number;
