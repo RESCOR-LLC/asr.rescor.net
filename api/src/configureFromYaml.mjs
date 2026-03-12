@@ -7,8 +7,8 @@
 // content lives in YAML, not in hand-maintained Cypher scripts.
 //
 // Usage:
-//   ASR_QUESTIONNAIRE_YAML=../asr.k12.com/build/asr_questions.yaml \
-//     node --env-file=../.env src/configureFromYaml.mjs
+//   node --env-file=../.env src/configureFromYaml.mjs \
+//     ../asr.k12.com/build/asr_questions.yaml
 //
 // Prerequisites: run `npm run cypher:setup -w api` first to seed
 // scaffolding (ScoringConfig, WeightTier, ScoreScale, constraints).
@@ -308,10 +308,10 @@ function generateCleanupStatements(data) {
 // ────────────────────────────────────────────────────────────────────
 
 async function configureFromYaml() {
-  const yamlPath = process.env.ASR_QUESTIONNAIRE_YAML;
+  const yamlPath = process.argv[2];
   if (!yamlPath) {
-    console.error('Error: ASR_QUESTIONNAIRE_YAML environment variable not set.');
-    console.error('Usage: ASR_QUESTIONNAIRE_YAML=path/to/asr_questions.yaml node src/configureFromYaml.mjs');
+    console.error('Error: YAML file path required.');
+    console.error('Usage: node src/configureFromYaml.mjs <path/to/asr_questions.yaml>');
     process.exit(1);
   }
 

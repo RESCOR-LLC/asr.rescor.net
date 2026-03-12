@@ -70,10 +70,11 @@ async function runCypherFile(database, filePath, label) {
 // compliance notes) by placing numbered .cypher files starting at 010
 // in the same cypher/ directory.  Files are sorted lexically.
 
-// CLI-level env var — not runtime application logic.
-// Used only during `npm run cypher:setup` invocation.
+// Explicit per-call parameter (CLI argument), not an env var.
+// Usage: node src/setupDatabase.mjs --overlay /path/to/overlay
 function discoverOverlayScripts() {
-  const overlayDirectory = process.env.ASR_OVERLAY_CYPHER_DIR;
+  const overlayIndex = process.argv.indexOf('--overlay');
+  const overlayDirectory = overlayIndex !== -1 ? process.argv[overlayIndex + 1] : undefined;
   if (!overlayDirectory) {
     return [];
   }

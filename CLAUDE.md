@@ -31,7 +31,9 @@ See [docs/PROJECT-PATTERNS.md](docs/PROJECT-PATTERNS.md) for ASR-specific conven
 - Four tuning dials: ScoringConfig, ClassificationChoice.factor, WeightTier.value, Question.choiceScores
 - Core packages: @rescor/core-db (Neo4jOperations), @rescor/core-config (Infisical), @rescor/core-utils
 - Cypher DDL: api/cypher/001-constraints, 002-seed-questionnaire, 003-seed-csf
-- Client overlay: `ASR_OVERLAY_CYPHER_DIR` env var points to client-specific cypher directory
+- Client overlay: `--overlay <dir>` CLI arg to cypher:setup for client-specific cypher scripts
+- YAML-to-Cypher: `npm run cypher:configure -w api -- <path/to/asr_questions.yaml>`
 - npm workspaces: api, frontend
 - Dev: `npm run dev` (root), `npm run cypher:setup -w api` (seed Neo4j)
-- Dev with client overlay: `ASR_OVERLAY_CYPHER_DIR=../asr.k12.com/cypher npm run cypher:setup -w api`
+- Dev with client overlay: `npm run cypher:setup -w api -- --overlay /abs/path/to/overlay`
+- Dev with client YAML: `npm run cypher:configure -w api -- /abs/path/to/asr_questions.yaml`

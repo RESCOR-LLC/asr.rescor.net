@@ -83,7 +83,6 @@ export async function createConfiguration() {
     enableCache: true,
     infisicalOptions: {
       projectId: process.env.INFISICAL_PROJECT_ID,
-      coreProjectId: process.env.INFISICAL_CORE_PROJECT_ID,
       clientId: process.env.INFISICAL_CLIENT_ID,
       clientSecret: process.env.INFISICAL_CLIENT_SECRET,
     },
@@ -96,19 +95,13 @@ export async function createConfiguration() {
 // ────────────────────────────────────────────────────────────────────
 // createDatabase — connect to Neo4j via core-db, return safe wrapper
 // ────────────────────────────────────────────────────────────────────
-// Env vars from .env (loaded via --env-file) override Infisical when
-// present — required because Infisical may return shared/core Neo4j
-// settings while ASR uses a dedicated container on an offset port.
+// All Neo4j settings resolve through Configuration (Infisical).
+// No process.env reads — Configuration-First Runtime Policy.
 
 export async function createDatabase(configuration) {
-  const uri = process.env.NEO4J_URI
-    || await configuration.getConfig('neo4j', 'uri')
-    || 'bolt://localhost:17687';
-  const database = process.env.NEO4J_DATABASE
-    || await configuration.getConfig('neo4j', 'database')
-    || 'neo4j';
-  const password = process.env.NEO4J_PASSWORD
-    || await configuration.getConfig('neo4j', 'password');
+  const uri = await configuration.getConfig('neo4j', 'uri') || 'bolt://localhost:17687';
+  const database = await configuration.getConfig('neo4j', 'database') || 'neo4j';
+  const password = await configuration.getConfig('neo4j', 'password') || 'asrdev123';
 
   const operations = new Neo4jOperations({
     schema: database,
