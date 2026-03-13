@@ -77,7 +77,8 @@ export function createConfigRouter(database) {
         );
 
         const policyLookupMap = await loadPolicyLookup(database);
-        const csfTooltipMap = await loadCsfTooltips(database);
+        const csfLookupMap = await loadCsfLookup(database);
+        const tagConfigMap = await loadComplianceTagConfigs(database);
 
         body = {
           scoringConfiguration,
@@ -87,7 +88,7 @@ export function createConfigRouter(database) {
           source: buildTranscendentalResponse(sourceResult, 'sourceQuestion', 'source'),
           environment: buildTranscendentalResponse(environmentResult, 'environmentQuestion', 'environment'),
           archetypes: archetypeResult.map((record) => record.archetype || record),
-          domains: buildDomainsResponse(domainsResult, policyLookupMap, csfTooltipMap),
+          domains: buildDomainsResponse(domainsResult, policyLookupMap, csfLookupMap, tagConfigMap),
           weightTiers: weightTiersResult.map((record) => record.tier || record),
         };
       }
@@ -152,39 +153,48 @@ export function createConfigRouter(database) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// loadPolicyLookup — reference → { title, tag } map
+// loadPolicyLookup — reference → { title, tag, url } map
 // ────────────────────────────────────────────────────────────────────
 
 async function loadPolicyLookup(database) {
   const result = await database.query(
     `MATCH (policy:Policy)
-     RETURN policy.reference AS reference, policy.title AS title, policy.tag AS tag`
+     RETURN policy.reference AS reference, policy.title AS title,
+            policy.tag AS tag, policy.url AS url`
   );
 
   const lookupMap = {};
   for (const record of result) {
-    lookupMap[record.reference] = { title: record.title, tag: record.tag || 'Policy' };
+    lookupMap[record.reference] = {
+      title: record.title,
+      tag: record.tag || 'Policy',
+      url: record.url || null,
+    };
   }
 
   return lookupMap;
 }
 
 // ────────────────────────────────────────────────────────────────────
-// loadCsfTooltips — code → tooltip string map
+// loadCsfLookup — code → { tooltip, description } map
 // ────────────────────────────────────────────────────────────────────
 
-async function loadCsfTooltips(database) {
+async function loadCsfLookup(database) {
   const result = await database.query(
     `MATCH (csf:CsfSubcategory)
-     RETURN csf.code AS code, csf.category AS category, csf.function AS function`
+     RETURN csf.code AS code, csf.category AS category,
+            csf.function AS function, csf.description AS description`
   );
 
-  const tooltipMap = {};
+  const lookupMap = {};
   for (const record of result) {
-    tooltipMap[record.code] = `${record.function}: ${record.category}`;
+    lookupMap[record.code] = {
+      tooltip: `${record.function}: ${record.category}`,
+      description: record.description || null,
+    };
   }
 
-  return tooltipMap;
+  return lookupMap;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -238,14 +248,35 @@ function buildTranscendentalResponse(records, questionKey, codeKey) {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// loadComplianceTagConfigs — tag → { action, baseUrl? } map
+// ────────────────────────────────────────────────────────────────────
+
+async function loadComplianceTagConfigs(database) {
+  const result = await database.query(
+    `MATCH (config:ComplianceTagConfig)
+     RETURN config.tag AS tag, config.action AS action, config.baseUrl AS baseUrl`
+  );
+
+  const configMap = {};
+  for (const record of result) {
+    configMap[record.tag] = {
+      action: record.action || null,
+      baseUrl: record.baseUrl || null,
+    };
+  }
+
+  return configMap;
+}
+
+// ────────────────────────────────────────────────────────────────────
 // buildDomainsResponse
 // ────────────────────────────────────────────────────────────────────
 
-function buildDomainsResponse(records, policyLookupMap, csfTooltipMap) {
+function buildDomainsResponse(records, policyLookupMap, csfLookupMap, tagConfigMap) {
   const answer = records.map((record) => {
     const domain = record.domain || {};
     const questions = buildQuestionsResponse(record.questions || []);
-    const complianceRefs = buildComplianceReferences(domain, policyLookupMap, csfTooltipMap);
+    const complianceRefs = buildComplianceReferences(domain, policyLookupMap, csfLookupMap, tagConfigMap);
 
     return {
       domainIndex: domain.domainIndex,
@@ -282,24 +313,35 @@ function buildQuestionsResponse(questions) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// buildComplianceReferences — CSF, note, and policy refs with tooltips
+// buildComplianceReferences — CSF, note, and policy refs with actions
 // ────────────────────────────────────────────────────────────────────
-// Reads data-driven properties from the Domain node.  Client overlays
-// add policyRefs, *Note properties, etc. — this code is generic.
+// Resolution cascade per ComplianceTagConfig:
+//   action='link'   → url from Policy node (explicit) or derived from baseUrl
+//   action='dialog' → description text (CSF description / note text)
+//   no config       → tooltip only (no click action)
 
-function buildComplianceReferences(domain, policyLookupMap, csfTooltipMap) {
+function buildComplianceReferences(domain, policyLookupMap, csfLookupMap, tagConfigMap) {
   const references = [];
 
   // NIST CSF subcategory references
+  const nistConfig = tagConfigMap['NIST'] || null;
   for (const code of domain.csfRefs || []) {
-    references.push({ tag: 'NIST', code, tooltip: csfTooltipMap[code] || null });
+    const lookup = csfLookupMap[code] || {};
+    const reference = { tag: 'NIST', code, tooltip: lookup.tooltip || null };
+    if (nistConfig) {
+      reference.action = nistConfig.action;
+      if (nistConfig.action === 'dialog') {
+        reference.description = lookup.description || null;
+      }
+    }
+    references.push(reference);
   }
 
   // Compliance notes — generic: any property ending in "Note"
-  appendNoteReferences(domain, references);
+  appendNoteReferences(domain, tagConfigMap, references);
 
   // Client-supplied policies (tag comes from Policy node data)
-  appendPolicyReferences(domain.policyRefs || [], policyLookupMap, references);
+  appendPolicyReferences(domain.policyRefs || [], policyLookupMap, tagConfigMap, references);
 
   return references;
 }
@@ -308,7 +350,7 @@ function buildComplianceReferences(domain, policyLookupMap, csfTooltipMap) {
 // appendNoteReferences — extract §-sections from any *Note property
 // ────────────────────────────────────────────────────────────────────
 
-function appendNoteReferences(domain, references) {
+function appendNoteReferences(domain, tagConfigMap, references) {
   const notePattern = /^(.+)Note$/;
 
   for (const [property, value] of Object.entries(domain)) {
@@ -321,24 +363,41 @@ function appendNoteReferences(domain, references) {
     }
 
     const framework = match[1].toUpperCase();
+    const tagConfig = tagConfigMap[framework] || null;
     const sections = value.match(/§[\d.]+/g) || [];
     for (const section of sections) {
-      references.push({ tag: framework, code: section, tooltip: value });
+      const reference = { tag: framework, code: section, tooltip: value };
+      if (tagConfig) {
+        reference.action = tagConfig.action;
+        if (tagConfig.action === 'dialog') {
+          reference.description = value;
+        }
+      }
+      references.push(reference);
     }
   }
 }
 
 // ────────────────────────────────────────────────────────────────────
-// appendPolicyReferences — enrich policy refs with tag and tooltip
+// appendPolicyReferences — enrich policy refs with tag, url, action
 // ────────────────────────────────────────────────────────────────────
 
-function appendPolicyReferences(policyRefs, policyLookupMap, references) {
+function appendPolicyReferences(policyRefs, policyLookupMap, tagConfigMap, references) {
   for (const code of policyRefs) {
     const lookup = policyLookupMap[code] || {};
-    references.push({
-      tag: lookup.tag || 'Policy',
+    const tag = lookup.tag || 'Policy';
+    const tagConfig = tagConfigMap[tag] || null;
+    const reference = {
+      tag,
       code,
       tooltip: lookup.title || null,
-    });
+    };
+    if (tagConfig) {
+      reference.action = tagConfig.action;
+      if (tagConfig.action === 'link') {
+        reference.url = lookup.url || null;
+      }
+    }
+    references.push(reference);
   }
 }
