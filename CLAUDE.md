@@ -46,4 +46,4 @@ See [docs/PROJECT-PATTERNS.md](docs/PROJECT-PATTERNS.md) for ASR-specific conven
 
 ## Active Plans
 
-None
+- [RBAC + Multi-Tenancy](docs/PLAN-RBAC-MULTITENANCY.md) — Role-based access control (admin, reviewer, user, auditor) + tenant-scoped review isolation
