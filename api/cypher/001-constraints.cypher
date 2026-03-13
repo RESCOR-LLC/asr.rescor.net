@@ -71,6 +71,10 @@ CREATE CONSTRAINT questionnaire_snapshot_version_unique IF NOT EXISTS
   FOR (snapshot:QuestionnaireSnapshot)
   REQUIRE snapshot.version IS UNIQUE;
 
+CREATE CONSTRAINT compliance_tag_config_tag_unique IF NOT EXISTS
+  FOR (config:ComplianceTagConfig)
+  REQUIRE config.tag IS UNIQUE;
+
 // ─── Existence Constraints (Enterprise Edition only) ─────────────
 // Uncomment when running Neo4j Enterprise:
 //
