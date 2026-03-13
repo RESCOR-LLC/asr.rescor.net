@@ -12,6 +12,7 @@ import RskChip, {
   measurementColor,
   COMPLIANCE_CHIP_COLORS,
 } from './RskChip';
+import ComplianceDetailDialog from './ComplianceDetailDialog';
 import { rskAggregate } from '../lib/scoring';
 import type { ComplianceRef, DomainConfig, AnswerState } from '../lib/types';
 
@@ -47,6 +48,7 @@ export default function DomainSection({
   deploymentArchetype,
 }: DomainSectionProps) {
   const [expanded, setExpanded] = useState(true);
+  const [selectedChip, setSelectedChip] = useState<ComplianceRef | null>(null);
 
   // Filter questions by deployment applicability
   const visibleQuestions = domain.questions.filter((question) => {
@@ -109,6 +111,13 @@ export default function DomainSection({
               value={chip.code}
               color={COMPLIANCE_CHIP_COLORS[chip.tag] ?? '#546E7A'}
               tooltip={chip.tooltip}
+              onClick={
+                chip.action === 'dialog'
+                  ? () => setSelectedChip(chip)
+                  : chip.action === 'link' && chip.url
+                    ? () => window.open(chip.url, '_blank', 'noopener')
+                    : undefined
+              }
             />
           ))}
         </Box>
@@ -133,6 +142,8 @@ export default function DomainSection({
           );
         })}
       </AccordionDetails>
+
+      <ComplianceDetailDialog chip={selectedChip} onClose={() => setSelectedChip(null)} />
     </Accordion>
   );
 }

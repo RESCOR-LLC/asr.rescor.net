@@ -26,9 +26,12 @@ export interface QuestionConfig {
 }
 
 export interface ComplianceRef {
-  tag: string;      // NIST, FERPA, SOX, ISP, IISP
-  code: string;     // GV.OC, §99.30, ISP 1.0, etc.
-  tooltip?: string; // Full name shown on hover
+  tag: string;         // NIST, FERPA, SOX, ISP, IISP
+  code: string;        // GV.OC, §99.30, ISP 1.0, etc.
+  tooltip?: string;    // Full name shown on hover
+  action?: 'link' | 'dialog';  // Chip click behavior (undefined = tooltip only)
+  url?: string;        // Target for action='link'
+  description?: string; // Body text for action='dialog'
 }
 
 export interface DomainConfig {

@@ -26,6 +26,8 @@ export interface RskChipProps {
   width?: number;
   /** Whether to dim the chip (unanswered state) */
   dimmed?: boolean;
+  /** Click handler — when provided, chip renders as clickable */
+  onClick?: () => void;
   /** Extra sx overrides */
   sx?: SxProps<Theme>;
 }
@@ -39,10 +41,12 @@ export default function RskChip({
   tooltip,
   width = STANDARD_WIDTH,
   dimmed = false,
+  onClick,
   sx,
 }: RskChipProps) {
   const chip = (
     <Box
+      onClick={onClick}
       sx={{
         display: 'inline-flex',
         flexDirection: 'column',
@@ -61,6 +65,7 @@ export default function RskChip({
         flexShrink: 0,
         userSelect: 'none',
         transition: 'opacity 0.2s',
+        ...(onClick && { cursor: 'pointer', '&:hover': { filter: 'brightness(1.15)' } }),
         ...sx,
       }}
     >
