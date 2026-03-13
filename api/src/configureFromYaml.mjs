@@ -311,6 +311,24 @@ function generateDomainStatements(data) {
     });
   }
 
+  // ── Compliance sources (per-tag chip behavior) ──────────────────
+  const complianceSources = data.compliance_sources || {};
+  for (const [tag, config] of Object.entries(complianceSources)) {
+    statements.push({
+      cypher: `
+        MERGE (tagConfig:ComplianceTagConfig {tag: $tag})
+          SET tagConfig.action  = $action,
+              tagConfig.baseUrl = $baseUrl,
+              tagConfig.updated = datetime()
+      `,
+      params: {
+        tag,
+        action: config.action || null,
+        baseUrl: config.base_url || null,
+      },
+    });
+  }
+
   return statements;
 }
 
@@ -547,6 +565,7 @@ async function configureFromYaml() {
 
   // Summary
   const archetypeCount = Object.keys(data.deployment_archetypes || {}).length;
+  const complianceSourceCount = Object.keys(data.compliance_sources || {}).length;
   const hasClassification = !!data.classification_question;
   const hasSource = !!data.source_question;
   const hasEnvironment = !!data.environment_question;
@@ -556,6 +575,7 @@ async function configureFromYaml() {
   console.log(`  Source question: ${hasSource ? 'yes' : 'no'}`);
   console.log(`  Environment question: ${hasEnvironment ? 'yes' : 'no'}`);
   console.log(`  Deployment archetypes: ${archetypeCount}`);
+  console.log(`  Compliance sources: ${complianceSourceCount}`);
   console.log(`  Questionnaire version: ${questionnaireVersion}`);
 
   await database.disconnect();
