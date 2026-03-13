@@ -2,7 +2,47 @@
 // ASR API Client
 // ════════════════════════════════════════════════════════════════════
 
+import { msalInstance, apiScopes, isMsalConfigured } from './authConfig';
+
 const BASE_URL = '/api';
+
+// ────────────────────────────────────────────────────────────────────
+// getAccessToken — acquire token silently from MSAL cache
+// ────────────────────────────────────────────────────────────────────
+
+async function getAccessToken(): Promise<string | null> {
+  let result: string | null = null;
+
+  if (isMsalConfigured && apiScopes.length > 0) {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      try {
+        const tokenResponse = await msalInstance.acquireTokenSilent({
+          scopes: apiScopes,
+          account: accounts[0],
+        });
+        result = tokenResponse.accessToken;
+      } catch {
+        // Silent acquisition failed — token will be null
+      }
+    }
+  }
+
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// authHeaders — build Authorization header if token available
+// ────────────────────────────────────────────────────────────────────
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = await getAccessToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 // ────────────────────────────────────────────────────────────────────
 // Shared response handler — throws on non-2xx status
@@ -25,7 +65,8 @@ async function handleResponse(response: Response): Promise<unknown> {
 // ────────────────────────────────────────────────────────────────────
 
 export async function fetchConfiguration(): Promise<unknown> {
-  const response = await fetch(`${BASE_URL}/config`);
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/config`, { headers });
   return handleResponse(response);
 }
 
@@ -34,7 +75,8 @@ export async function fetchConfiguration(): Promise<unknown> {
 // ────────────────────────────────────────────────────────────────────
 
 export async function fetchConfigurationVersion(version: string): Promise<unknown> {
-  const response = await fetch(`${BASE_URL}/config?version=${encodeURIComponent(version)}`);
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/config?version=${encodeURIComponent(version)}`, { headers });
   return handleResponse(response);
 }
 
@@ -43,7 +85,8 @@ export async function fetchConfigurationVersion(version: string): Promise<unknow
 // ────────────────────────────────────────────────────────────────────
 
 export async function fetchVersions(): Promise<unknown> {
-  const response = await fetch(`${BASE_URL}/config/versions`);
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/config/versions`, { headers });
   return handleResponse(response);
 }
 
@@ -52,7 +95,8 @@ export async function fetchVersions(): Promise<unknown> {
 // ────────────────────────────────────────────────────────────────────
 
 export async function fetchReviews(): Promise<unknown[]> {
-  const response = await fetch(`${BASE_URL}/reviews`);
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/reviews`, { headers });
   return (await handleResponse(response)) as unknown[];
 }
 
@@ -61,7 +105,8 @@ export async function fetchReviews(): Promise<unknown[]> {
 // ────────────────────────────────────────────────────────────────────
 
 export async function fetchReview(reviewId: string): Promise<unknown> {
-  const response = await fetch(`${BASE_URL}/reviews/${reviewId}`);
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}`, { headers });
   return handleResponse(response);
 }
 
@@ -72,26 +117,27 @@ export async function fetchReview(reviewId: string): Promise<unknown> {
 export async function renameReview(
   reviewId: string,
   applicationName: string,
-  assessor: string,
 ): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews/${reviewId}/rename`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ applicationName, assessor }),
+    headers: await authHeaders(),
+    body: JSON.stringify({ applicationName }),
   });
   return handleResponse(response);
 }
+
+// ────────────────────────────────────────────────────────────────────
+// createReview
 // ────────────────────────────────────────────────────────────────────
 
 export async function createReview(
   applicationName: string,
-  assessor: string,
   notes: string = '',
 ): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ applicationName, assessor, notes }),
+    headers: await authHeaders(),
+    body: JSON.stringify({ applicationName, notes }),
   });
   return handleResponse(response);
 }
@@ -104,12 +150,11 @@ export async function saveAnswers(
   reviewId: string,
   classificationFactor: number,
   answers: unknown[],
-  assessor: string,
 ): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews/${reviewId}/answers`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ classificationFactor, answers, assessor }),
+    headers: await authHeaders(),
+    body: JSON.stringify({ classificationFactor, answers }),
   });
   return handleResponse(response);
 }
@@ -118,14 +163,11 @@ export async function saveAnswers(
 // submitReview
 // ────────────────────────────────────────────────────────────────────
 
-export async function submitReview(
-  reviewId: string,
-  assessor: string,
-): Promise<unknown> {
+export async function submitReview(reviewId: string): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews/${reviewId}/submit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assessor }),
+    headers: await authHeaders(),
+    body: JSON.stringify({}),
   });
   return handleResponse(response);
 }
@@ -138,12 +180,11 @@ export async function updateClassification(
   reviewId: string,
   choiceText: string,
   factor: number,
-  assessor: string,
 ): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews/${reviewId}/classification`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ choiceText, factor, assessor }),
+    headers: await authHeaders(),
+    body: JSON.stringify({ choiceText, factor }),
   });
   return handleResponse(response);
 }
@@ -156,12 +197,11 @@ export async function updateDeployment(
   reviewId: string,
   sourceChoice: string,
   environmentChoice: string,
-  assessor: string,
 ): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews/${reviewId}/deployment`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sourceChoice, environmentChoice, assessor }),
+    headers: await authHeaders(),
+    body: JSON.stringify({ sourceChoice, environmentChoice }),
   });
   return handleResponse(response);
 }

@@ -55,19 +55,17 @@ export default function DashboardPage() {
   const [reviews, setReviews] = useState<ReviewSummary[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [applicationName, setApplicationName] = useState('');
-  const [assessor, setAssessor] = useState('');
 
   useEffect(() => {
     fetchReviews().then((data) => setReviews(data as ReviewSummary[]));
   }, []);
 
   async function handleCreate(): Promise<void> {
-    if (applicationName.trim() && assessor.trim()) {
-      const result = (await createReview(applicationName.trim(), assessor.trim())) as Record<string, unknown>;
+    if (applicationName.trim()) {
+      const result = (await createReview(applicationName.trim())) as Record<string, unknown>;
       const created = (result.review ?? result) as ReviewSummary;
       setDialogOpen(false);
       setApplicationName('');
-      setAssessor('');
       navigate(`/review/${created.reviewId}`);
     }
   }
@@ -170,13 +168,6 @@ export default function DashboardPage() {
             label="Application Name"
             value={applicationName}
             onChange={(event) => setApplicationName(event.target.value)}
-          />
-          <TextField
-            fullWidth
-            margin="dense"
-            label="Assessor"
-            value={assessor}
-            onChange={(event) => setAssessor(event.target.value)}
           />
         </DialogContent>
         <DialogActions>

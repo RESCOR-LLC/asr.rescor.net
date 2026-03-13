@@ -258,7 +258,7 @@ export default function ReviewPage() {
 
       // Persist classification to server
       if (reviewId && review) {
-        updateClassification(reviewId, choice.text, choice.factor, review.assessor).catch(
+        updateClassification(reviewId, choice.text, choice.factor).catch(
           (error) => setErrorMessage((error as Error).message),
         );
       }
@@ -286,7 +286,7 @@ export default function ReviewPage() {
       setHasUnsavedChanges(true);
 
       if (reviewId && review && environmentChoice) {
-        updateDeployment(reviewId, choice.source, environmentChoice, review.assessor).catch(
+        updateDeployment(reviewId, choice.source, environmentChoice).catch(
           (error) => setErrorMessage((error as Error).message),
         );
       }
@@ -301,7 +301,7 @@ export default function ReviewPage() {
       setHasUnsavedChanges(true);
 
       if (reviewId && review && sourceChoice) {
-        updateDeployment(reviewId, sourceChoice, choice.environment, review.assessor).catch(
+        updateDeployment(reviewId, sourceChoice, choice.environment).catch(
           (error) => setErrorMessage((error as Error).message),
         );
       }
@@ -356,7 +356,6 @@ export default function ReviewPage() {
         reviewId,
         classificationFactor,
         answersPayload,
-        review.assessor,
       );
 
       setHasUnsavedChanges(false);
@@ -377,7 +376,7 @@ export default function ReviewPage() {
 
     setSubmitting(true);
     try {
-      await submitReview(reviewId, review.assessor);
+      await submitReview(reviewId);
       setReview((previous) => previous ? { ...previous, status: 'SUBMITTED' } : previous);
       setSnackMessage('Review submitted successfully');
     } catch (error) {
