@@ -67,9 +67,22 @@ Note these values for configuration:
 
 ## Configuration
 
-### Frontend (Vite environment variables)
+All credentials are stored in **Infisical** (Configuration-First Runtime
+Policy).  The frontend reads build-time env vars that CI/CD injects from
+Infisical; the API reads directly from Infisical at startup.
 
-Set in `.env.local` or deployment environment:
+### Infisical Secrets (ASR project)
+
+| Secret | Path | Consumed by | Description |
+|--------|------|-------------|-------------|
+| `entra/tenantId` | `/asr/` | API + CI/CD | Entra ID directory (tenant) ID |
+| `entra/clientId` | `/asr/` | API + CI/CD | Entra ID app registration client ID |
+
+### Frontend (Vite build-time variables)
+
+Vite statically replaces `import.meta.env.VITE_*` at build time.  In CI/CD,
+inject these from Infisical before the Vite build step.  For local dev with
+real auth, export them in the shell before `npm run dev`.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -80,14 +93,11 @@ Set in `.env.local` or deployment environment:
 *When omitted, MSAL is disabled and the app runs without authentication
 (development mode).
 
-### API (Infisical)
+### API
 
-Store in Infisical under the ASR project:
-
-| Secret | Path | Description |
-|--------|------|-------------|
-| `entra/tenantId` | `/asr/` | Entra ID directory (tenant) ID |
-| `entra/clientId` | `/asr/` | Entra ID app registration client ID |
+Reads `entra/tenantId` and `entra/clientId` from Infisical via
+`@rescor/core-config` at startup.  No `.env` fallback — when the secrets are
+absent, the middleware operates in auth-optional dev mode.
 
 The API reads these at startup via `@rescor/core-config`. When neither is
 set, the middleware operates in auth-optional dev mode.

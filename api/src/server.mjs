@@ -26,8 +26,8 @@ async function bootstrap() {
   const database = await createDatabase(configuration);
 
   // Auth config from Infisical (optional — absent in dev = auth-optional)
-  const tenantId = await configuration.getConfig('entra', 'tenantId') || process.env.VITE_MSAL_TENANT_ID || null;
-  const clientId = await configuration.getConfig('entra', 'clientId') || process.env.VITE_MSAL_CLIENT_ID || null;
+  const tenantId = await configuration.getConfig('entra', 'tenantId') || null;
+  const clientId = await configuration.getConfig('entra', 'clientId') || null;
   const isDevelopment = process.env.NODE_ENV !== 'production';
 
   const authenticate = createAuthenticationMiddleware({ isDevelopment, tenantId, clientId });
