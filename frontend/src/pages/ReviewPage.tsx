@@ -21,6 +21,7 @@ import VersionBanner from '../components/VersionBanner';
 import DomainSection from '../components/DomainSection';
 import ScoreDashboard from '../components/ScoreDashboard';
 import ReviewActions from '../components/ReviewActions';
+import UserMenu from '../components/UserMenu';
 import {
   fetchConfiguration,
   fetchConfigurationVersion,
@@ -458,6 +459,7 @@ export default function ReviewPage() {
           <Typography variant="body2" color="inherit" sx={{ opacity: 0.8 }}>
             {review.assessor} · {review.status}
           </Typography>
+          <UserMenu />
         </Toolbar>
       </AppBar>
 

@@ -24,6 +24,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import { brandColors } from '../theme/theme';
 import { fetchReviews, createReview } from '../lib/apiClient';
+import UserMenu from '../components/UserMenu';
 
 // ────────────────────────────────────────────────────────────────────
 // Rating color map
@@ -84,6 +85,7 @@ export default function DashboardPage() {
           >
             New Review
           </Button>
+          <UserMenu />
         </Toolbar>
       </AppBar>
 
