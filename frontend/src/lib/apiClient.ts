@@ -205,3 +205,21 @@ export async function updateDeployment(
   });
   return handleResponse(response);
 }
+
+// ────────────────────────────────────────────────────────────────────
+// fetchCurrentUser — /api/auth/me
+// ────────────────────────────────────────────────────────────────────
+
+export interface CurrentUser {
+  sub: string;
+  preferred_username: string;
+  email: string | null;
+  roles: string[];
+  tenantId: string | null;
+}
+
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/auth/me`, { headers });
+  return (await handleResponse(response)) as CurrentUser;
+}

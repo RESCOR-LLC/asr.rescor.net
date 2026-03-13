@@ -24,6 +24,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import { brandColors } from '../theme/theme';
 import { fetchReviews, createReview } from '../lib/apiClient';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import UserMenu from '../components/UserMenu';
 
 // ────────────────────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ export default function DashboardPage() {
   const [reviews, setReviews] = useState<ReviewSummary[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [applicationName, setApplicationName] = useState('');
+  const { canCreate } = useCurrentUser();
 
   useEffect(() => {
     fetchReviews().then((data) => setReviews(data as ReviewSummary[]));
@@ -78,13 +80,15 @@ export default function DashboardPage() {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             Application Security Review
           </Typography>
-          <Button
-            color="inherit"
-            startIcon={<AddIcon />}
-            onClick={() => setDialogOpen(true)}
-          >
-            New Review
-          </Button>
+          {canCreate && (
+            <Button
+              color="inherit"
+              startIcon={<AddIcon />}
+              onClick={() => setDialogOpen(true)}
+            >
+              New Review
+            </Button>
+          )}
           <UserMenu />
         </Toolbar>
       </AppBar>

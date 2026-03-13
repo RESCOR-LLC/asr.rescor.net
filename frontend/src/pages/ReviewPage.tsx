@@ -34,6 +34,7 @@ import {
 import { computeScore } from '../lib/scoring';
 import { exportReviewToExcel } from '../lib/exportExcel';
 import { saveDraft, loadDraft } from '../lib/storage';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import type {
   AppConfiguration,
   AnswerState,
@@ -55,6 +56,7 @@ function answerKey(domainIndex: number, questionIndex: number): string {
 export default function ReviewPage() {
   const { reviewId } = useParams<{ reviewId: string }>();
   const navigate = useNavigate();
+  const { canEdit } = useCurrentUser();
 
   // ── Loading / error state ─────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -440,6 +442,7 @@ export default function ReviewPage() {
   }
 
   const isSubmitted = review.status === 'SUBMITTED';
+  const isReadOnly = isSubmitted || !canEdit;
 
   return (
     <Box>
@@ -479,21 +482,21 @@ export default function ReviewPage() {
               classification={configuration.classification}
               selectedChoice={classificationChoice}
               onChoiceChange={handleClassificationChange}
-              disabled={isSubmitted}
+              disabled={isReadOnly}
             />
 
             <SourceBanner
               source={configuration.source}
               selectedSource={sourceChoice}
               onSourceChange={handleSourceChange}
-              disabled={isSubmitted}
+              disabled={isReadOnly}
             />
 
             <EnvironmentBanner
               environment={configuration.environment}
               selectedEnvironment={environmentChoice}
               onEnvironmentChange={handleEnvironmentChange}
-              disabled={isSubmitted}
+              disabled={isReadOnly}
             />
 
             {classificationFactor === 0 && (
@@ -510,7 +513,7 @@ export default function ReviewPage() {
                 onAnswerChange={handleAnswerChange}
                 weightTierMap={weightTierMap}
                 classificationFactor={classificationFactor}
-                disabled={isSubmitted}
+                disabled={isReadOnly}
                 dampingFactor={configuration.scoringConfiguration.dampingFactor}
                 deploymentArchetype={deploymentArchetype}
               />
@@ -529,17 +532,19 @@ export default function ReviewPage() {
         </Grid>
       </Container>
 
-      <ReviewActions
-        onSaveDraft={handleSaveDraft}
-        onSaveServer={handleSaveServer}
-        onSubmit={handleSubmit}
-        onDownloadExcel={handleDownloadExcel}
-        saving={saving}
-        submitting={submitting}
-        exporting={exporting}
-        isSubmitted={isSubmitted}
-        hasUnsavedChanges={hasUnsavedChanges}
-      />
+      {canEdit && (
+        <ReviewActions
+          onSaveDraft={handleSaveDraft}
+          onSaveServer={handleSaveServer}
+          onSubmit={handleSubmit}
+          onDownloadExcel={handleDownloadExcel}
+          saving={saving}
+          submitting={submitting}
+          exporting={exporting}
+          isSubmitted={isSubmitted}
+          hasUnsavedChanges={hasUnsavedChanges}
+        />
+      )}
 
       <Snackbar
         open={snackMessage !== null}
