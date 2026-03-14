@@ -22,9 +22,20 @@ export class UserStore {
     const sub = claims.sub;
     const username = claims.preferred_username || claims.email || sub;
     const email = claims.email || '';
-    const roles = JSON.stringify(claims.roles || []);
+    const jwtRoles = claims.roles || [];
+    const hasJwtRoles = jwtRoles.length > 0;
+    const roles = JSON.stringify(hasJwtRoles ? jwtRoles : ['user']);
     const tenantId = claims.tenantId || null;
     const now = new Date().toISOString();
+
+    // Claim pre-provisioned user (matched by email OR username) on first login
+    await this.database.query(
+      `MATCH (u:User)
+       WHERE u.sub STARTS WITH 'pre-provisioned:'
+         AND (u.email = $username OR u.username = $username)
+       SET u.sub = $sub`,
+      { username, sub }
+    );
 
     const rows = await this.database.query(
       `MERGE (u:User { sub: $sub })
@@ -36,8 +47,8 @@ export class UserStore {
          u.lastSeen  = $now
        ON MATCH SET
          u.username  = $username,
-         u.email     = $email,
-         u.roles     = $roles,
+         u.email     = CASE WHEN $email <> '' THEN $email ELSE u.email END,
+         u.roles     = CASE WHEN $hasJwtRoles = true THEN $roles ELSE u.roles END,
          u.lastSeen  = $now
        WITH u
        OPTIONAL MATCH (t:Tenant {tenantId: $tenantId})
@@ -50,7 +61,7 @@ export class UserStore {
               u.roles     AS roles,
               u.firstSeen AS firstSeen,
               u.lastSeen  AS lastSeen`,
-      { sub, username, email, roles, tenantId, now }
+      { sub, username, email, roles, hasJwtRoles, tenantId, now }
     );
 
     const result = rows[0] || null;

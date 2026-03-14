@@ -14,6 +14,7 @@ const SCRIPTS = [
   '003-seed-policies-csf.cypher',
   '004-auth-constraints.cypher',
   '005-seed-tenants.cypher',
+  '006-seed-superusers.cypher',
 ];
 
 // ────────────────────────────────────────────────────────────────────

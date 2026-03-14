@@ -116,7 +116,10 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
       };
 
       if (userStore) {
-        await userStore.ensureUser(request.user);
+        const persisted = await userStore.ensureUser(request.user);
+        if (persisted && persisted.roles && persisted.roles.length > 0) {
+          request.user.roles = persisted.roles;
+        }
       }
 
       next();
