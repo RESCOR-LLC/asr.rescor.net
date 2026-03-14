@@ -12,6 +12,8 @@ const SCRIPTS = [
   '001-constraints.cypher',
   '002-seed-questionnaire.cypher',
   '003-seed-policies-csf.cypher',
+  '004-auth-constraints.cypher',
+  '005-seed-tenants.cypher',
 ];
 
 // ────────────────────────────────────────────────────────────────────
