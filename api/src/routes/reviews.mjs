@@ -319,7 +319,10 @@ export function createReviewsRouter(database) {
     try {
       const result = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})
-         SET review.applicationName = $applicationName,
+         WITH review,
+              CASE WHEN review.previousNames IS NULL THEN [] ELSE review.previousNames END AS names
+         SET review.previousNames = names + [review.applicationName],
+             review.applicationName = $applicationName,
              review.updated = $now,
              review.updatedBy = $assessor
          RETURN review`,

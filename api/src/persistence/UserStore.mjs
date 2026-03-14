@@ -118,4 +118,105 @@ export class UserStore {
     const result = rows[0]?.tenants || [];
     return result;
   }
+
+  /**
+   * List all users.
+   *
+   * @returns {Promise<object[]>}
+   */
+  async listUsers() {
+    const rows = await this.database.query(
+      `MATCH (u:User)
+       OPTIONAL MATCH (u)-[:BELONGS_TO]->(t:Tenant)
+       RETURN u.sub       AS sub,
+              u.username  AS username,
+              u.email     AS email,
+              u.roles     AS roles,
+              u.firstSeen AS firstSeen,
+              u.lastSeen  AS lastSeen,
+              collect(t.tenantId) AS tenants
+       ORDER BY u.username`
+    );
+
+    for (const row of rows) {
+      if (typeof row.roles === 'string') {
+        row.roles = JSON.parse(row.roles);
+      }
+    }
+
+    return rows;
+  }
+
+  /**
+   * Pre-provision a user by email so they can be assigned roles
+   * before their first login.
+   *
+   * @param {string} email
+   * @param {string[]} roles
+   * @returns {Promise<object>}
+   */
+  async provisionUser(email, roles) {
+    const sub = `pre-provisioned:${email}`;
+    const rolesJson = JSON.stringify(roles);
+    const now = new Date().toISOString();
+
+    const rows = await this.database.query(
+      `MERGE (u:User {email: $email})
+       ON CREATE SET
+         u.sub       = $sub,
+         u.username  = $email,
+         u.roles     = $roles,
+         u.firstSeen = $now,
+         u.lastSeen  = $now
+       ON MATCH SET
+         u.roles     = $roles,
+         u.lastSeen  = $now
+       RETURN u.sub       AS sub,
+              u.username  AS username,
+              u.email     AS email,
+              u.roles     AS roles,
+              u.firstSeen AS firstSeen,
+              u.lastSeen  AS lastSeen`,
+      { email, sub, roles: rolesJson, now }
+    );
+
+    const result = rows[0] || null;
+    if (result && typeof result.roles === 'string') {
+      result.roles = JSON.parse(result.roles);
+    }
+
+    return result;
+  }
+
+  /**
+   * Update roles for an existing user (by sub).
+   *
+   * @param {string} sub
+   * @param {string[]} roles
+   * @returns {Promise<object|null>}
+   */
+  async updateRoles(sub, roles) {
+    const rolesJson = JSON.stringify(roles);
+    const now = new Date().toISOString();
+
+    const rows = await this.database.query(
+      `MATCH (u:User {sub: $sub})
+       SET u.roles    = $roles,
+           u.lastSeen = $now
+       RETURN u.sub       AS sub,
+              u.username  AS username,
+              u.email     AS email,
+              u.roles     AS roles,
+              u.firstSeen AS firstSeen,
+              u.lastSeen  AS lastSeen`,
+      { sub, roles: rolesJson, now }
+    );
+
+    const result = rows[0] || null;
+    if (result && typeof result.roles === 'string') {
+      result.roles = JSON.parse(result.roles);
+    }
+
+    return result;
+  }
 }

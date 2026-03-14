@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppBar,
@@ -9,21 +9,35 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Toolbar,
+  Tooltip,
   Typography,
   Paper,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ClearIcon from '@mui/icons-material/Clear';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import PeopleIcon from '@mui/icons-material/People';
 import { brandColors } from '../theme/theme';
-import { fetchReviews, createReview } from '../lib/apiClient';
+import { fetchReviews, fetchVersions, createReview, renameReview, deleteReview } from '../lib/apiClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import UserMenu from '../components/UserMenu';
 
@@ -49,19 +63,163 @@ interface ReviewSummary {
   status: string;
   rating: string | null;
   rskNormalized: number | null;
+  questionnaireVersion: string | null;
   created: string;
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Compact cell style
+// ────────────────────────────────────────────────────────────────────
+
+const compactCell = { py: 0.5, px: 1.5, fontSize: '0.8125rem' } as const;
+const compactHeadCell = { ...compactCell, fontWeight: 700 } as const;
+
+// ────────────────────────────────────────────────────────────────────
+// Sort helpers
+// ────────────────────────────────────────────────────────────────────
+
+type SortColumn = 'applicationName' | 'assessor' | 'status' | 'rating' | 'rskNormalized' | 'version' | 'created';
+type SortDirection = 'asc' | 'desc';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [reviews, setReviews] = useState<ReviewSummary[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [applicationName, setApplicationName] = useState('');
-  const { canCreate } = useCurrentUser();
+  const { canCreate, canEdit, isAdmin } = useCurrentUser();
+
+  // Filter state
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [ratingFilter, setRatingFilter] = useState<string>('');
+  const [assessorFilter, setAssessorFilter] = useState<string>('');
+
+  // Sort state
+  const [sortColumn, setSortColumn] = useState<SortColumn>('created');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  // Version hash → display map (e.g. "e54c6e3711d9" → { number: "v1", label: "..." })
+  const [versionMap, setVersionMap] = useState<Record<string, { number: string; label: string; ordinal: number }>>({});
+
+  // Rename dialog
+  const [renameTarget, setRenameTarget] = useState<ReviewSummary | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  // Delete confirmation dialog
+  const [deleteTarget, setDeleteTarget] = useState<ReviewSummary | null>(null);
 
   useEffect(() => {
-    fetchReviews().then((data) => setReviews(data as ReviewSummary[]));
+    fetchReviews()
+      .then((data) => setReviews(data as ReviewSummary[]))
+      .catch((error) => console.error('[asr] fetchReviews failed:', error))
+      .finally(() => setLoading(false));
+    fetchVersions().then((data) => {
+      const payload = data as { versions: { version: string; label: string | null; created: string }[] };
+      const sorted = [...payload.versions].sort(
+        (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime(),
+      );
+      const map: Record<string, { number: string; label: string; ordinal: number }> = {};
+      sorted.forEach((snapshot, index) => {
+        map[snapshot.version] = {
+          number: `v${index + 1}`,
+          label: snapshot.label || snapshot.version,
+          ordinal: index + 1,
+        };
+      });
+      setVersionMap(map);
+    }).catch(() => { /* versions endpoint unavailable — fall back to hash */ });
   }, []);
+
+  // ── Version display helper ──────────────────────────────────────
+
+  const versionDisplay = useCallback(
+    (hash: string | null): { text: string; tooltip: string; ordinal: number } => {
+      if (!hash) return { text: 'v0', tooltip: 'Pre-versioning', ordinal: 0 };
+      const entry = versionMap[hash];
+      if (entry) return { text: entry.number, tooltip: entry.label, ordinal: entry.ordinal };
+      return { text: hash.slice(0, 8), tooltip: hash, ordinal: -1 };
+    },
+    [versionMap],
+  );
+
+  // ── Derived values for filter dropdowns ─────────────────────────
+
+  const assessors = useMemo(
+    () => [...new Set(reviews.map((review) => review.assessor))].sort(),
+    [reviews],
+  );
+  const statuses = useMemo(
+    () => [...new Set(reviews.map((review) => review.status))].sort(),
+    [reviews],
+  );
+  const ratings = useMemo(
+    () => [...new Set(reviews.map((review) => review.rating).filter(Boolean) as string[])].sort(),
+    [reviews],
+  );
+
+  // ── Filtered + sorted reviews ───────────────────────────────────
+
+  const filteredReviews = useMemo(() => {
+    const lowerSearch = searchText.toLowerCase();
+    const filtered = reviews.filter((review) => {
+      if (searchText && !review.applicationName.toLowerCase().includes(lowerSearch)) return false;
+      if (statusFilter && review.status !== statusFilter) return false;
+      if (ratingFilter && review.rating !== ratingFilter) return false;
+      if (assessorFilter && review.assessor !== assessorFilter) return false;
+      return true;
+    });
+
+    const comparator = (a: ReviewSummary, b: ReviewSummary): number => {
+      let result = 0;
+      switch (sortColumn) {
+        case 'applicationName':
+          result = a.applicationName.localeCompare(b.applicationName);
+          break;
+        case 'assessor':
+          result = a.assessor.localeCompare(b.assessor);
+          break;
+        case 'status':
+          result = a.status.localeCompare(b.status);
+          break;
+        case 'rating':
+          result = (a.rating || '').localeCompare(b.rating || '');
+          break;
+        case 'rskNormalized':
+          result = (a.rskNormalized ?? -1) - (b.rskNormalized ?? -1);
+          break;
+        case 'version':
+          result = versionDisplay(a.questionnaireVersion).ordinal - versionDisplay(b.questionnaireVersion).ordinal;
+          break;
+        case 'created':
+          result = new Date(a.created).getTime() - new Date(b.created).getTime();
+          break;
+      }
+      return sortDirection === 'asc' ? result : -result;
+    };
+
+    return [...filtered].sort(comparator);
+  }, [reviews, searchText, statusFilter, ratingFilter, assessorFilter, sortColumn, sortDirection, versionDisplay]);
+
+  const hasActiveFilters = searchText || statusFilter || ratingFilter || assessorFilter;
+
+  function clearFilters(): void {
+    setSearchText('');
+    setStatusFilter('');
+    setRatingFilter('');
+    setAssessorFilter('');
+  }
+
+  function handleSort(column: SortColumn): void {
+    if (sortColumn === column) {
+      setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  }
+
+  // ── Create ──────────────────────────────────────────────────────
 
   async function handleCreate(): Promise<void> {
     if (applicationName.trim()) {
@@ -73,87 +231,220 @@ export default function DashboardPage() {
     }
   }
 
+  // ── Rename ──────────────────────────────────────────────────────
+
+  function openRename(event: React.MouseEvent, review: ReviewSummary): void {
+    event.stopPropagation();
+    setRenameTarget(review);
+    setRenameValue(review.applicationName);
+  }
+
+  async function handleRename(): Promise<void> {
+    if (!renameTarget || !renameValue.trim()) return;
+    await renameReview(renameTarget.reviewId, renameValue.trim());
+    setReviews((previous) =>
+      previous.map((review) =>
+        review.reviewId === renameTarget.reviewId
+          ? { ...review, applicationName: renameValue.trim() }
+          : review,
+      ),
+    );
+    setRenameTarget(null);
+  }
+
+  // ── Delete ──────────────────────────────────────────────────────
+
+  function openDelete(event: React.MouseEvent, review: ReviewSummary): void {
+    event.stopPropagation();
+    setDeleteTarget(review);
+  }
+
+  async function handleDelete(): Promise<void> {
+    if (!deleteTarget) return;
+    await deleteReview(deleteTarget.reviewId);
+    setReviews((previous) => previous.filter((review) => review.reviewId !== deleteTarget.reviewId));
+    setDeleteTarget(null);
+  }
+
+  // ── Render ──────────────────────────────────────────────────────
+
   return (
     <Box>
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
+          <Typography variant="h6" component="div">
             Application Security Review
           </Typography>
           {canCreate && (
             <Button
+              variant="outlined"
               color="inherit"
               startIcon={<AddIcon />}
               onClick={() => setDialogOpen(true)}
+              sx={{ ml: 2 }}
             >
               New Review
             </Button>
+          )}
+          <Box sx={{ flexGrow: 1 }} />
+          {isAdmin && (
+            <Tooltip title="Manage Users">
+              <IconButton color="inherit" onClick={() => navigate('/admin/users')}>
+                <PeopleIcon />
+              </IconButton>
+            </Tooltip>
           )}
           <UserMenu />
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
+      <Container maxWidth="lg" sx={{ mt: 3 }}>
+        {/* ── Filter bar ──────────────────────────────────────────── */}
+        <Stack direction="row" spacing={1.5} sx={{ mb: 2 }} alignItems="center" flexWrap="wrap" useFlexGap>
+          <TextField
+            size="small"
+            placeholder="Search application…"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            slotProps={{
+              input: {
+                endAdornment: searchText ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setSearchText('')}><ClearIcon fontSize="small" /></IconButton>
+                  </InputAdornment>
+                ) : undefined,
+              },
+            }}
+            sx={{ minWidth: 200 }}
+          />
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Status</InputLabel>
+            <Select value={statusFilter} label="Status" onChange={(event) => setStatusFilter(event.target.value)}>
+              <MenuItem value="">All</MenuItem>
+              {statuses.map((status) => <MenuItem key={status} value={status}>{status}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Rating</InputLabel>
+            <Select value={ratingFilter} label="Rating" onChange={(event) => setRatingFilter(event.target.value)}>
+              <MenuItem value="">All</MenuItem>
+              {ratings.map((rating) => <MenuItem key={rating} value={rating}>{rating}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Assessor</InputLabel>
+            <Select value={assessorFilter} label="Assessor" onChange={(event) => setAssessorFilter(event.target.value)}>
+              <MenuItem value="">All</MenuItem>
+              {assessors.map((assessor) => <MenuItem key={assessor} value={assessor}>{assessor}</MenuItem>)}
+            </Select>
+          </FormControl>
+          {hasActiveFilters && (
+            <Button size="small" onClick={clearFilters}>Clear</Button>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
+            {filteredReviews.length} of {reviews.length}
+          </Typography>
+        </Stack>
+
+        {/* ── Reviews table ───────────────────────────────────────── */}
         <TableContainer component={Paper}>
-          <Table>
+          <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell><strong>Application</strong></TableCell>
-                <TableCell><strong>Assessor</strong></TableCell>
-                <TableCell><strong>Status</strong></TableCell>
-                <TableCell><strong>Rating</strong></TableCell>
-                <TableCell><strong>Score</strong></TableCell>
-                <TableCell><strong>Created</strong></TableCell>
+                {([
+                  ['applicationName', 'Application'],
+                  ['assessor', 'Assessor'],
+                  ['status', 'Status'],
+                  ['rating', 'Rating'],
+                  ['rskNormalized', 'Score'],
+                  ['version', 'Version'],
+                  ['created', 'Created'],
+                ] as [SortColumn, string][]).map(([column, label]) => (
+                  <TableCell key={column} sx={compactHeadCell} sortDirection={sortColumn === column ? sortDirection : false}>
+                    <TableSortLabel
+                      active={sortColumn === column}
+                      direction={sortColumn === column ? sortDirection : 'asc'}
+                      onClick={() => handleSort(column)}
+                    >
+                      {label}
+                    </TableSortLabel>
+                  </TableCell>
+                ))}
+                {canEdit && <TableCell sx={compactHeadCell} />}
               </TableRow>
             </TableHead>
             <TableBody>
-              {reviews.map((review) => (
-                <TableRow
-                  key={review.reviewId}
-                  hover
-                  sx={{ cursor: 'pointer' }}
-                  onClick={() => navigate(`/review/${review.reviewId}`)}
-                >
-                  <TableCell>{review.applicationName}</TableCell>
-                  <TableCell>{review.assessor}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={review.status}
-                      size="small"
-                      color={review.status === 'SUBMITTED' ? 'success' : 'default'}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {review.rating ? (
+              {filteredReviews.map((review) => {
+                const version = versionDisplay(review.questionnaireVersion);
+                return (
+                  <TableRow
+                    key={review.reviewId}
+                    hover
+                    sx={{ cursor: 'pointer', '& td': compactCell }}
+                    onClick={() => navigate(`/review/${review.reviewId}`)}
+                  >
+                    <TableCell>{review.applicationName}</TableCell>
+                    <TableCell>{review.assessor}</TableCell>
+                    <TableCell>
                       <Chip
-                        label={review.rating}
+                        label={review.status}
                         size="small"
-                        sx={{
-                          minWidth: 100,
-                          fontWeight: 700,
-                          backgroundColor: ratingColorMap[review.rating] || brandColors.gray,
-                          color: '#fff',
-                        }}
+                        color={review.status === 'SUBMITTED' ? 'success' : 'default'}
                       />
-                    ) : (
-                      '—'
+                    </TableCell>
+                    <TableCell>
+                      {review.rating ? (
+                        <Chip
+                          label={review.rating}
+                          size="small"
+                          sx={{
+                            minWidth: 80,
+                            fontWeight: 700,
+                            backgroundColor: ratingColorMap[review.rating] || brandColors.gray,
+                            color: '#fff',
+                          }}
+                        />
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {review.rskNormalized != null
+                        ? `${review.rskNormalized.toFixed(1)}%`
+                        : '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip title={version.tooltip} arrow>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', cursor: 'help' }}>
+                          {version.text}
+                        </Typography>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>
+                      {new Date(review.created).toLocaleDateString()}
+                    </TableCell>
+                    {canEdit && (
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        <IconButton size="small" onClick={(event) => openRename(event, review)} title="Rename">
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" onClick={(event) => openDelete(event, review)} title="Delete">
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
                     )}
-                  </TableCell>
-                  <TableCell>
-                    {review.rskNormalized != null
-                      ? `${review.rskNormalized.toFixed(1)}%`
-                      : '—'}
-                  </TableCell>
-                  <TableCell>
-                    {new Date(review.created).toLocaleDateString()}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {reviews.length === 0 && (
+                  </TableRow>
+                );
+              })}
+              {filteredReviews.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center">
-                    <Typography color="text.secondary" sx={{ py: 4 }}>
-                      No reviews yet. Click "New Review" to begin.
+                  <TableCell colSpan={canEdit ? 8 : 7} align="center">
+                    <Typography color="text.secondary" sx={{ py: 3, fontSize: '0.875rem' }}>
+                      {loading
+                        ? 'Loading assessments…'
+                        : reviews.length === 0
+                          ? 'No reviews yet. Click "New Review" to begin.'
+                          : 'No reviews match the current filters.'}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -163,7 +454,7 @@ export default function DashboardPage() {
         </TableContainer>
       </Container>
 
-      {/* New Review Dialog */}
+      {/* ── New Review Dialog ──────────────────────────────────────── */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
         <DialogTitle>New Application Security Review</DialogTitle>
         <DialogContent>
@@ -180,6 +471,44 @@ export default function DashboardPage() {
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleCreate}>
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Rename Dialog ──────────────────────────────────────────── */}
+      <Dialog open={renameTarget !== null} onClose={() => setRenameTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Rename Assessment</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            margin="dense"
+            label="Application Name"
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameTarget(null)}>Cancel</Button>
+          <Button variant="contained" onClick={handleRename} disabled={!renameValue.trim()}>
+            Rename
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Delete Confirmation Dialog ─────────────────────────────── */}
+      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)}>
+        <DialogTitle>Delete Assessment</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete <strong>{deleteTarget?.applicationName}</strong>?
+            This assessment will be archived and removed from the active list.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

@@ -31,5 +31,6 @@ export const msalInstance = new PublicClientApplication(msalConfig);
 /** Scopes requested when acquiring tokens for the ASR API */
 export const apiScopes = clientId ? [`${clientId}/.default`] : [];
 
-/** Whether MSAL is configured (client ID present) */
-export const isMsalConfigured = clientId.length > 0;
+/** Whether MSAL is configured (client ID present) and auth is not bypassed */
+export const isMsalConfigured = clientId.length > 0
+  && import.meta.env.VITE_DEV_BYPASS_AUTH !== 'true';

@@ -6,18 +6,24 @@ import { useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { Avatar, Box, IconButton, Menu, MenuItem, Typography } from '@mui/material';
 import { isMsalConfigured } from '../lib/authConfig';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 
 export default function UserMenu() {
   const { instance } = useMsal();
+  const { user: apiUser } = useCurrentUser();
   const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
 
   const account = instance.getActiveAccount() ?? instance.getAllAccounts()[0] ?? null;
 
-  if (!isMsalConfigured || !account) {
+  // Derive display values from MSAL account or API user (dev bypass)
+  const displayName = account?.name || account?.username
+    || apiUser?.preferred_username || apiUser?.email || null;
+  const accountEmail = account?.username || apiUser?.email || apiUser?.preferred_username || null;
+
+  if (!displayName) {
     return null;
   }
 
-  const displayName = account.name || account.username || 'User';
   const initials = displayName
     .split(/\s+/)
     .map((word) => word[0])
@@ -35,7 +41,12 @@ export default function UserMenu() {
 
   function handleSignOut(): void {
     handleClose();
-    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    if (isMsalConfigured && account) {
+      instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
+    } else {
+      // Dev bypass — just reload to clear any cached state
+      window.location.reload();
+    }
   }
 
   return (
@@ -49,9 +60,11 @@ export default function UserMenu() {
         </Avatar>
       </IconButton>
       <Menu anchorEl={anchorElement} open={Boolean(anchorElement)} onClose={handleClose}>
-        <MenuItem disabled>
-          <Typography variant="body2" color="text.secondary">{account.username}</Typography>
-        </MenuItem>
+        {accountEmail && (
+          <MenuItem disabled>
+            <Typography variant="body2" color="text.secondary">{accountEmail}</Typography>
+          </MenuItem>
+        )}
         <MenuItem onClick={handleSignOut}>Sign out</MenuItem>
       </Menu>
     </Box>

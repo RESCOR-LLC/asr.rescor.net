@@ -223,3 +223,74 @@ export async function fetchCurrentUser(): Promise<CurrentUser> {
   const response = await fetch(`${BASE_URL}/auth/me`, { headers });
   return (await handleResponse(response)) as CurrentUser;
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Admin — user management + review reassignment
+// ════════════════════════════════════════════════════════════════════
+
+export interface AdminUser {
+  sub: string;
+  email: string | null;
+  username: string | null;
+  displayName: string | null;
+  roles: string[];
+  firstSeen: string | null;
+  lastSeen: string | null;
+}
+
+export async function fetchUsers(): Promise<AdminUser[]> {
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/admin/users`, { headers });
+  return (await handleResponse(response)) as AdminUser[];
+}
+
+export async function provisionUser(
+  email: string,
+  roles: string[],
+): Promise<AdminUser> {
+  const response = await fetch(`${BASE_URL}/admin/users`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ email, roles }),
+  });
+  return (await handleResponse(response)) as AdminUser;
+}
+
+export async function updateUserRoles(
+  sub: string,
+  roles: string[],
+): Promise<AdminUser> {
+  const response = await fetch(`${BASE_URL}/admin/users/${encodeURIComponent(sub)}/roles`, {
+    method: 'PATCH',
+    headers: await authHeaders(),
+    body: JSON.stringify({ roles }),
+  });
+  return (await handleResponse(response)) as AdminUser;
+}
+
+export async function deleteReview(reviewId: string): Promise<void> {
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(
+      body && typeof body === 'object' && 'error' in body
+        ? String((body as Record<string, unknown>).error)
+        : `HTTP ${response.status}`,
+    );
+  }
+}
+
+export async function reassignReview(
+  reviewId: string,
+  assessor: string,
+): Promise<unknown> {
+  const response = await fetch(`${BASE_URL}/admin/reviews/${reviewId}/reassign`, {
+    method: 'PATCH',
+    headers: await authHeaders(),
+    body: JSON.stringify({ assessor }),
+  });
+  return handleResponse(response);
+}
