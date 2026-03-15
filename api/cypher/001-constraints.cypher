@@ -79,6 +79,10 @@ CREATE CONSTRAINT compliance_tag_config_tag_unique IF NOT EXISTS
   FOR (config:ComplianceTagConfig)
   REQUIRE config.tag IS UNIQUE;
 
+CREATE CONSTRAINT questionnaire_draft_id_unique IF NOT EXISTS
+  FOR (draft:QuestionnaireDraft)
+  REQUIRE draft.draftId IS UNIQUE;
+
 CREATE CONSTRAINT remediation_id_unique IF NOT EXISTS
   FOR (ri:RemediationItem)
   REQUIRE ri.remediationId IS UNIQUE;

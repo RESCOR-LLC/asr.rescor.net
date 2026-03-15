@@ -36,6 +36,7 @@ import ClearIcon from '@mui/icons-material/Clear';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import PeopleIcon from '@mui/icons-material/People';
+import EditNoteIcon from '@mui/icons-material/EditNote';
 import { brandColors } from '../theme/theme';
 import { fetchReviews, fetchVersions, createReview, renameReview, deleteReview } from '../lib/apiClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -287,6 +288,13 @@ export default function DashboardPage() {
             </Button>
           )}
           <Box sx={{ flexGrow: 1 }} />
+          {isAdmin && (
+            <Tooltip title="Questionnaire Editor">
+              <IconButton color="inherit" onClick={() => navigate('/admin/questionnaire')}>
+                <EditNoteIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           {isAdmin && (
             <Tooltip title="Manage Users">
               <IconButton color="inherit" onClick={() => navigate('/admin/users')}>

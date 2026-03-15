@@ -3,6 +3,7 @@ import AuthGuard from './components/AuthGuard';
 import DashboardPage from './pages/DashboardPage';
 import ReviewPage from './pages/ReviewPage';
 import AdminUsersPage from './pages/AdminUsersPage';
+import QuestionnaireEditorPage from './pages/QuestionnaireEditorPage';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/review/:reviewId" element={<ReviewPage />} />
         <Route path="/admin/users" element={<AdminUsersPage />} />
+        <Route path="/admin/questionnaire" element={<QuestionnaireEditorPage />} />
       </Routes>
     </AuthGuard>
   );

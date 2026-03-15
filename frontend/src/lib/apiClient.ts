@@ -390,3 +390,83 @@ export async function deleteRemediationItem(
   });
   return handleResponse(response);
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Questionnaire Admin — Draft CRUD, Import, Export
+// ════════════════════════════════════════════════════════════════════
+
+import type { DraftSummary, DraftDetail } from './types';
+
+const ADMIN_Q = `${BASE_URL}/admin/questionnaire`;
+
+export async function fetchDrafts(): Promise<DraftSummary[]> {
+  const headers = await authHeaders();
+  const response = await fetch(`${ADMIN_Q}/drafts`, { headers });
+  return (await handleResponse(response)) as DraftSummary[];
+}
+
+export async function createDraft(label?: string): Promise<DraftDetail> {
+  const response = await fetch(`${ADMIN_Q}/drafts`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ label }),
+  });
+  return (await handleResponse(response)) as DraftDetail;
+}
+
+export async function fetchDraft(draftId: string): Promise<DraftDetail> {
+  const headers = await authHeaders();
+  const response = await fetch(`${ADMIN_Q}/drafts/${encodeURIComponent(draftId)}`, { headers });
+  return (await handleResponse(response)) as DraftDetail;
+}
+
+export async function updateDraft(draftId: string, updates: { label?: string; data?: unknown }): Promise<unknown> {
+  const response = await fetch(`${ADMIN_Q}/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'PUT',
+    headers: await authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  return handleResponse(response);
+}
+
+export async function publishDraft(draftId: string): Promise<unknown> {
+  const response = await fetch(`${ADMIN_Q}/drafts/${encodeURIComponent(draftId)}/publish`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({}),
+  });
+  return handleResponse(response);
+}
+
+export async function deleteDraft(draftId: string): Promise<unknown> {
+  const response = await fetch(`${ADMIN_Q}/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  return handleResponse(response);
+}
+
+export async function importYaml(yamlText: string): Promise<DraftDetail> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { 'Content-Type': 'text/yaml' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${ADMIN_Q}/import`, {
+    method: 'POST',
+    headers,
+    body: yamlText,
+  });
+  return (await handleResponse(response)) as DraftDetail;
+}
+
+export async function exportQuestionnaire(format: 'yaml' | 'json' = 'yaml'): Promise<string> {
+  const headers = await authHeaders();
+  const response = await fetch(`${ADMIN_Q}/export?format=${format}`, { headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const message = body && typeof body === 'object' && 'error' in body
+      ? String((body as Record<string, unknown>).error)
+      : `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return response.text();
+}

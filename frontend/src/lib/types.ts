@@ -183,3 +183,47 @@ export interface RemediationItem {
   combinedMitigation: number;
   residualRU: number;
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Questionnaire Draft types
+// ════════════════════════════════════════════════════════════════════
+
+export interface DraftSummary {
+  draftId: string;
+  label: string;
+  status: 'DRAFT' | 'PUBLISHED';
+  createdBy: string;
+  created: string;
+  updated: string;
+}
+
+export interface DraftQuestion {
+  questionId: string | null;
+  domainIndex: number;
+  questionIndex: number;
+  text: string;
+  weightTier: string;
+  choices: string[];
+  choiceScores: number[];
+  naScore: number;
+  applicability: string[];
+  guidance: string | null;
+  responsibleFunction: string | null;
+}
+
+export interface DraftDomain {
+  domainIndex: number;
+  name: string;
+  policyRefs: string[];
+  csfRefs: string[];
+  questions: DraftQuestion[];
+}
+
+export interface DraftData {
+  domains: DraftDomain[];
+  [key: string]: unknown;
+}
+
+export interface DraftDetail extends DraftSummary {
+  data: DraftData;
+}
