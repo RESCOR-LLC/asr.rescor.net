@@ -513,3 +513,45 @@ export async function clearGate(
   });
   return (await handleResponse(response)) as { gateId: string; clearedCount: number };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Document Export — binary downloads
+// ────────────────────────────────────────────────────────────────────
+
+async function downloadFile(url: string, filename: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = await getAccessToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Download failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(objectUrl);
+}
+
+export async function downloadQuestionnaireDocx(): Promise<void> {
+  await downloadFile(`${BASE_URL}/export/questionnaire.docx`, 'ASR_Questionnaire.docx');
+}
+
+export async function downloadQuestionnaireXlsx(): Promise<void> {
+  await downloadFile(`${BASE_URL}/export/questionnaire.xlsx`, 'ASR_Questionnaire.xlsx');
+}
+
+export async function downloadReviewReport(reviewId: string, applicationName?: string): Promise<void> {
+  const safeName = (applicationName || 'Review').replace(/[^a-zA-Z0-9_-]/g, '_');
+  await downloadFile(
+    `${BASE_URL}/reviews/${reviewId}/export/report.docx`,
+    `ASR_Report_${safeName}.docx`,
+  );
+}

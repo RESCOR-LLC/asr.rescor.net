@@ -16,6 +16,8 @@
     "@rescor/core-db": "file:../../core.rescor.net/packages/core-db",
     "@rescor/core-utils": "file:../../core.rescor.net/packages/core-utils",
     "cors": "^2.8.5",
+    "docx": "^9.6.1",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "jose": "^6.2.1",
     "js-yaml": "^4.1.1",

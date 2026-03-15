@@ -37,8 +37,10 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import PeopleIcon from '@mui/icons-material/People';
 import EditNoteIcon from '@mui/icons-material/EditNote';
+import DescriptionIcon from '@mui/icons-material/Description';
+import TableChartIcon from '@mui/icons-material/TableChart';
 import { brandColors } from '../theme/theme';
-import { fetchReviews, fetchVersions, createReview, renameReview, deleteReview } from '../lib/apiClient';
+import { fetchReviews, fetchVersions, createReview, renameReview, deleteReview, downloadQuestionnaireDocx, downloadQuestionnaireXlsx } from '../lib/apiClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import UserMenu from '../components/UserMenu';
 
@@ -287,6 +289,16 @@ export default function DashboardPage() {
               New Review
             </Button>
           )}
+          <Tooltip title="Download Questionnaire (Word)">
+            <IconButton color="inherit" onClick={() => downloadQuestionnaireDocx()}>
+              <DescriptionIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Download Questionnaire (Excel)">
+            <IconButton color="inherit" onClick={() => downloadQuestionnaireXlsx()}>
+              <TableChartIcon />
+            </IconButton>
+          </Tooltip>
           <Box sx={{ flexGrow: 1 }} />
           {isAdmin && (
             <Tooltip title="Questionnaire Editor">

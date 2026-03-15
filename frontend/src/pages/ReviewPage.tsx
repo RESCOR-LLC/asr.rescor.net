@@ -9,13 +9,16 @@ import {
   CircularProgress,
   Container,
   Grid,
+  IconButton,
   Snackbar,
   Tab,
   Tabs,
   Toolbar,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DownloadIcon from '@mui/icons-material/Download';
 
 import ClassificationBanner from '../components/ClassificationBanner';
 import SourceBanner from '../components/SourceBanner';
@@ -35,6 +38,7 @@ import {
   submitReview,
   updateClassification,
   updateDeployment,
+  downloadReviewReport,
 } from '../lib/apiClient';
 import { computeScore } from '../lib/scoring';
 import { exportReviewToExcel } from '../lib/exportExcel';
@@ -562,6 +566,11 @@ export default function ReviewPage() {
           <Typography variant="body2" color="inherit" sx={{ opacity: 0.8 }}>
             {review.assessor} · {review.status}
           </Typography>
+          <Tooltip title="Download Report (Word)">
+            <IconButton color="inherit" onClick={() => downloadReviewReport(reviewId, review.applicationName)}>
+              <DownloadIcon />
+            </IconButton>
+          </Tooltip>
           <UserMenu />
         </Toolbar>
       </AppBar>

@@ -14,6 +14,7 @@ import { createAdminRouter } from './routes/admin.mjs';
 import { createRemediationRouter } from './routes/remediation.mjs';
 import { createQuestionnaireAdminRouter } from './routes/questionnaireAdmin.mjs';
 import { createGateRouter } from './routes/gates.mjs';
+import { createExportRouter } from './routes/exportDocuments.mjs';
 import { createAuthenticationMiddleware } from './middleware/authenticate.mjs';
 import { authorize } from './middleware/authorize.mjs';
 import { UserStore } from './persistence/UserStore.mjs';
@@ -73,6 +74,7 @@ async function bootstrap() {
   application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore));
   application.use('/api/admin/questionnaire', authorize('admin'), createQuestionnaireAdminRouter(database));
   application.use('/api', createGateRouter(database));
+  application.use('/api', createExportRouter(database));
 
   application.listen(PORT, () => {
     console.log(`ASR API listening on port ${PORT}`);
