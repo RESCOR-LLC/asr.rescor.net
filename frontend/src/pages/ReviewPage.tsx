@@ -23,6 +23,7 @@ import EnvironmentBanner from '../components/EnvironmentBanner';
 import VersionBanner from '../components/VersionBanner';
 import DomainSection from '../components/DomainSection';
 import RemediationTab from '../components/RemediationTab';
+import GateAttestationSection from '../components/GateAttestationSection';
 import ScoreDashboard from '../components/ScoreDashboard';
 import ReviewActions from '../components/ReviewActions';
 import UserMenu from '../components/UserMenu';
@@ -270,6 +271,7 @@ export default function ReviewPage() {
                 weightTier: (item.answer.weightTier as string) || '',
                 measurement: (item.answer.measurement as number) || 0,
                 notes: (item.answer.notes as string) || '',
+                gatedBy: (item.answer.gatedBy as string) || null,
               });
             }
           }
@@ -466,6 +468,54 @@ export default function ReviewPage() {
     }
   }, [configuration, review, classificationChoice, classificationFactor, answers, liveScore]);
 
+  // ── Gate pre-fill callback — re-fetch answers from server ────
+  const handleGatePreFill = useCallback(async () => {
+    if (!reviewId || !configuration) return;
+    try {
+      const reviewData = await fetchReview(reviewId);
+      if (reviewData && (reviewData as Record<string, unknown>).review) {
+        const detail = reviewData as { review: Record<string, unknown>; answers: Array<{ answer: Record<string, unknown> | null; question: Record<string, unknown> | null }> };
+        const answerMap = new Map<string, AnswerState>();
+        for (const item of detail.answers) {
+          if (item.answer && item.question) {
+            const key = answerKey(
+              item.answer.domainIndex as number,
+              item.answer.questionIndex as number,
+            );
+            answerMap.set(key, {
+              questionId: (item.answer.questionId as string) || null,
+              domainIndex: item.answer.domainIndex as number,
+              questionIndex: item.answer.questionIndex as number,
+              choiceIndex: findChoiceIndex(
+                configuration,
+                item.answer.domainIndex as number,
+                item.answer.questionIndex as number,
+                item.answer.choiceText as string,
+              ),
+              choiceText: (item.answer.choiceText as string) || '',
+              rawScore: (item.answer.rawScore as number) || 0,
+              weightTier: (item.answer.weightTier as string) || '',
+              measurement: (item.answer.measurement as number) || 0,
+              notes: (item.answer.notes as string) || '',
+              gatedBy: (item.answer.gatedBy as string) || null,
+            });
+          }
+        }
+        setAnswers(answerMap);
+        // Update review score from server
+        const updatedReview = detail.review;
+        setReview((previous) => previous ? {
+          ...previous,
+          rskRaw: (updatedReview.rskRaw as number) || 0,
+          rskNormalized: (updatedReview.rskNormalized as number) || 0,
+          rating: (updatedReview.rating as string) || previous.rating,
+        } : previous);
+      }
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    }
+  }, [reviewId, configuration]);
+
   // ── Render ────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -567,6 +617,12 @@ export default function ReviewPage() {
                   selectedEnvironment={environmentChoice}
                   onEnvironmentChange={handleEnvironmentChange}
                   disabled={isReadOnly}
+                />
+
+                <GateAttestationSection
+                  reviewId={reviewId}
+                  disabled={isReadOnly}
+                  onPreFill={handleGatePreFill}
                 />
 
                 {classificationFactor === 0 && (

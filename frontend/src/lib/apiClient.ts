@@ -470,3 +470,46 @@ export async function exportQuestionnaire(format: 'yaml' | 'json' = 'yaml'): Pro
   }
   return response.text();
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Gate Questions — attestation + pre-fill
+// ════════════════════════════════════════════════════════════════════
+
+import type { GateWithAnswer, GatePreFillResult } from './types';
+
+export async function fetchGateConfig(): Promise<GateWithAnswer[]> {
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/gates`, { headers });
+  return (await handleResponse(response)) as GateWithAnswer[];
+}
+
+export async function fetchGateAnswers(reviewId: string): Promise<GateWithAnswer[]> {
+  const headers = await authHeaders();
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}/gates`, { headers });
+  return (await handleResponse(response)) as GateWithAnswer[];
+}
+
+export async function answerGate(
+  reviewId: string,
+  gateId: string,
+  choiceIndex: number,
+  evidenceNotes?: string,
+): Promise<GatePreFillResult> {
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}/gates/${encodeURIComponent(gateId)}`, {
+    method: 'PUT',
+    headers: await authHeaders(),
+    body: JSON.stringify({ choiceIndex, evidenceNotes }),
+  });
+  return (await handleResponse(response)) as GatePreFillResult;
+}
+
+export async function clearGate(
+  reviewId: string,
+  gateId: string,
+): Promise<{ gateId: string; clearedCount: number }> {
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}/gates/${encodeURIComponent(gateId)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  return (await handleResponse(response)) as { gateId: string; clearedCount: number };
+}

@@ -13,6 +13,7 @@ const SCRIPTS = [
   '002-seed-questionnaire.cypher',
   '003-seed-policies-csf.cypher',
   '004-auth-constraints.cypher',
+  '004-seed-gates.cypher',
   '005-seed-tenants.cypher',
   '006-seed-superusers.cypher',
 ];

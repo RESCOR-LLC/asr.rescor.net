@@ -2,12 +2,14 @@ import {
   Box,
   Card,
   CardContent,
+  Chip,
   FormControlLabel,
   Radio,
   RadioGroup,
   TextField,
   Typography,
 } from '@mui/material';
+import LockIcon from '@mui/icons-material/Lock';
 import RskChip, {
   WEIGHT_CHIP_COLORS,
   measurementColor,
@@ -74,6 +76,7 @@ export default function QuestionCard({
   const questionNumber = `${question.domainIndex}.${question.questionIndex + 1}`;
   const weightColor = WEIGHT_CHIP_COLORS[question.weightTier] || '#78909C';
   const isAnswered = answer.choiceIndex !== null;
+  const isGated = Boolean(answer.gatedBy);
   const displayMeasurement = isAnswered ? Math.ceil(answer.measurement) : 0;
 
   return (
@@ -114,6 +117,16 @@ export default function QuestionCard({
             color={isAnswered ? measurementColor(displayMeasurement, maxMeasurement) : '#BDBDBD'}
             dimmed={!isAnswered}
           />
+          {isGated && (
+            <Chip
+              icon={<LockIcon sx={{ fontSize: '0.8rem' }} />}
+              label={`Pre-filled by ${answer.gatedBy}`}
+              size="small"
+              variant="outlined"
+              color="info"
+              sx={{ fontSize: '0.7rem', height: 22 }}
+            />
+          )}
         </Box>
 
         {/* Choice radios */}
@@ -125,7 +138,7 @@ export default function QuestionCard({
             <FormControlLabel
               key={index}
               value={String(index)}
-              disabled={disabled}
+              disabled={disabled || isGated}
               control={<Radio size="small" sx={{ py: 0.25 }} />}
               label={
                 <Typography variant="body2">
@@ -144,7 +157,7 @@ export default function QuestionCard({
           ))}
           <FormControlLabel
             value="-1"
-            disabled={disabled}
+            disabled={disabled || isGated}
             control={<Radio size="small" sx={{ py: 0.25 }} />}
             label={
               <Typography variant="body2" color="text.secondary">

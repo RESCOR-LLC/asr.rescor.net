@@ -87,6 +87,14 @@ CREATE CONSTRAINT remediation_id_unique IF NOT EXISTS
   FOR (ri:RemediationItem)
   REQUIRE ri.remediationId IS UNIQUE;
 
+CREATE CONSTRAINT gate_question_id_unique IF NOT EXISTS
+  FOR (gq:GateQuestion)
+  REQUIRE gq.gateId IS UNIQUE;
+
+CREATE CONSTRAINT gate_answer_review_gate_unique IF NOT EXISTS
+  FOR (ga:GateAnswer)
+  REQUIRE (ga.reviewId, ga.gateId) IS UNIQUE;
+
 CREATE INDEX remediation_status_index IF NOT EXISTS
   FOR (ri:RemediationItem) ON (ri.status);
 

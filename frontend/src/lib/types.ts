@@ -116,6 +116,7 @@ export interface AnswerState {
   weightTier: string;
   measurement: number;
   notes: string;
+  gatedBy?: string | null;
 }
 
 export interface ReviewDetail {
@@ -226,4 +227,39 @@ export interface DraftData {
 
 export interface DraftDetail extends DraftSummary {
   data: DraftData;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Gate Question types
+// ════════════════════════════════════════════════════════════════════
+
+export interface GateQuestion {
+  gateId: string;
+  function: string;
+  text: string;
+  choices: string[];
+  sortOrder: number;
+}
+
+export interface GateAnswerData {
+  choiceIndex: number;
+  respondedBy: string;
+  respondedAt: string;
+  evidenceNotes: string;
+}
+
+export interface GateWithAnswer extends GateQuestion {
+  answer: GateAnswerData | null;
+}
+
+export interface GatePreFillResult {
+  gateId: string;
+  choiceIndex: number;
+  preFilledCount: number;
+  preFilled: Array<{
+    domainIndex: number;
+    questionIndex: number;
+    choiceText: string;
+    rawScore: number;
+  }>;
 }
