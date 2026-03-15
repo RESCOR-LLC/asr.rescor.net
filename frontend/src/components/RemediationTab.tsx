@@ -32,9 +32,11 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import GavelIcon from '@mui/icons-material/Gavel';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SaveIcon from '@mui/icons-material/Save';
 import {
   addRemediationItem,
+  deleteRemediationItem,
   fetchRemediation,
   generateRemediation,
   updateRemediationItem,
@@ -102,13 +104,14 @@ type SortDirection = 'asc' | 'desc';
 interface RemediationTabProps {
   reviewId: string;
   isReadOnly: boolean;
+  onDataChange?: (items: RemediationItem[]) => void;
 }
 
 // ────────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────────
 
-export default function RemediationTab({ reviewId, isReadOnly }: RemediationTabProps) {
+export default function RemediationTab({ reviewId, isReadOnly, onDataChange }: RemediationTabProps) {
   const { isAdmin, isReviewer } = useCurrentUser();
   const canManage = isAdmin || isReviewer;
 
@@ -135,12 +138,13 @@ export default function RemediationTab({ reviewId, isReadOnly }: RemediationTabP
     try {
       const data = await fetchRemediation(reviewId);
       setItems(data);
+      onDataChange?.(data);
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [reviewId]);
+  }, [reviewId, onDataChange]);
 
   useEffect(() => {
     loadItems();
@@ -231,6 +235,17 @@ export default function RemediationTab({ reviewId, isReadOnly }: RemediationTabP
     try {
       await acceptRisk(reviewId, remediationId);
       setSnackMessage('Risk accepted');
+      await loadItems();
+    } catch (error) {
+      setErrorMessage((error as Error).message);
+    }
+  }
+
+  // ── Delete a remediation item ─────────────────────────────────
+  async function handleDelete(remediationId: string): Promise<void> {
+    try {
+      await deleteRemediationItem(reviewId, remediationId);
+      setSnackMessage('Deleted');
       await loadItems();
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -462,6 +477,11 @@ export default function RemediationTab({ reviewId, isReadOnly }: RemediationTabP
                 </Button>
               </Tooltip>
             )}
+            <Tooltip title="Delete">
+              <IconButton size="small" onClick={() => handleDelete(remediationId)} color="error">
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </TableCell>
         )}
       </TableRow>

@@ -9,6 +9,7 @@ import type { ScoringConfiguration, ScoreResult } from '../lib/scoring';
 
 interface ScoreDashboardProps {
   score: ScoreResult;
+  residualScore: ScoreResult | null;
   scoringConfiguration: ScoringConfiguration;
   answeredCount: number;
   totalCount: number;
@@ -23,12 +24,15 @@ const RATING_COLORS: Record<string, string> = {
 
 export default function ScoreDashboard({
   score,
+  residualScore,
   scoringConfiguration,
   answeredCount,
   totalCount,
 }: ScoreDashboardProps) {
   const progressPercent = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
   const ratingColor = RATING_COLORS[score.rating] || brandColors.gray;
+  const hasResidual = residualScore !== null && residualScore.normalized < score.normalized;
+  const residualColor = hasResidual ? (RATING_COLORS[residualScore!.rating] || brandColors.gray) : ratingColor;
 
   return (
     <Paper
@@ -40,7 +44,7 @@ export default function ScoreDashboard({
       }}
     >
       <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-        Risk Score
+        {hasResidual ? 'Inherent Risk' : 'Risk Score'}
       </Typography>
 
       {/* Rating chip */}
@@ -73,7 +77,7 @@ export default function ScoreDashboard({
         sx={{
           height: 8,
           borderRadius: 4,
-          mb: 2,
+          mb: hasResidual ? 3 : 2,
           backgroundColor: '#e0e0e0',
           '& .MuiLinearProgress-bar': {
             backgroundColor: ratingColor,
@@ -81,6 +85,48 @@ export default function ScoreDashboard({
           },
         }}
       />
+
+      {/* Residual risk (after remediation) */}
+      {hasResidual && (
+        <>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Residual Risk
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Chip
+              label={residualScore!.rating}
+              sx={{
+                backgroundColor: residualColor,
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: '1rem',
+                height: 36,
+                mr: 1,
+              }}
+            />
+            <Typography variant="h5" fontWeight={700}>
+              {Math.ceil(residualScore!.normalized)} RU
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Raw: {residualScore!.raw} / {scoringConfiguration.rawMax}
+          </Typography>
+          <LinearProgress
+            variant="determinate"
+            value={Math.min(residualScore!.normalized, 100)}
+            sx={{
+              height: 8,
+              borderRadius: 4,
+              mb: 2,
+              backgroundColor: '#e0e0e0',
+              '& .MuiLinearProgress-bar': {
+                backgroundColor: residualColor,
+                borderRadius: 4,
+              },
+            }}
+          />
+        </>
+      )}
 
       {/* Progress */}
       <Typography variant="subtitle2" color="text.secondary" gutterBottom>

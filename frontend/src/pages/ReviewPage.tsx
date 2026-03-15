@@ -45,9 +45,9 @@ import type {
   ClassificationChoice,
   SourceChoice,
   EnvironmentChoice,
+  RemediationItem,
   ReviewDetail,
 } from '../lib/types';
-import { fetchRemediation } from '../lib/apiClient';
 import type { ScoringConfiguration } from '../lib/scoring';
 
 // ════════════════════════════════════════════════════════════════════
@@ -71,6 +71,7 @@ export default function ReviewPage() {
   // ── Active tab (Assessment vs Remediation Plan) ───────────────
   const [activeTab, setActiveTab] = useState(0);
   const [remediationCount, setRemediationCount] = useState(0);
+  const [remediationItems, setRemediationItems] = useState<RemediationItem[]>([]);
 
   // ── Configuration (loaded once) ───────────────────────────────
   const [configuration, setConfiguration] = useState<AppConfiguration | null>(null);
@@ -126,6 +127,43 @@ export default function ReviewPage() {
     return computeScore(measurements, scoringConfig);
   }, [answers, configuration]);
 
+  // ── Residual score (factors in remediation mitigation) ─────────
+  const residualScore = useMemo(() => {
+    if (remediationItems.length === 0) return null;
+
+    const scoringConfig: ScoringConfiguration = configuration?.scoringConfiguration ?? {
+      dampingFactor: 4,
+      rawMax: 134,
+      ratingThresholds: [25, 50, 75],
+      ratingLabels: ['Low', 'Moderate', 'Elevated', 'Critical'],
+    };
+
+    const residualMeasurements = Array.from(answers.values())
+      .filter((answer) => answer.choiceIndex !== null)
+      .map((answer) => {
+        const remediation = remediationItems.find(
+          (item) => item.domainIndex === answer.domainIndex && item.questionIndex === answer.questionIndex,
+        );
+        if (remediation && remediation.combinedMitigation > 0) {
+          return Math.max(0, Math.round(answer.measurement * (1 - remediation.combinedMitigation / 100)));
+        }
+        return answer.measurement;
+      });
+
+    return computeScore(residualMeasurements, scoringConfig);
+  }, [answers, remediationItems, configuration]);
+
+  // ── Remediation data change callback ──────────────────────────
+  const handleRemediationDataChange = useCallback((items: RemediationItem[]) => {
+    setRemediationItems(items);
+    setRemediationCount(
+      items.filter((item) =>
+        item.remediations.length === 0
+        || item.remediations.some((r) => r.status === 'OPEN' || r.status === 'IN_PROGRESS')
+      ).length
+    );
+  }, []);
+
   // ── Count answered questions ──────────────────────────────────
   const answeredCount = useMemo(() => {
     let count = 0;
@@ -163,17 +201,7 @@ export default function ReviewPage() {
         const latestConfig = configData as AppConfiguration;
         setCurrentVersion(latestConfig.questionnaireVersion);
 
-        // Fetch remediation count for badge
-        if (reviewId) {
-          fetchRemediation(reviewId)
-            .then((remediationItems) => setRemediationCount(
-              remediationItems.filter((item) =>
-                item.remediations.length === 0
-                || item.remediations.some((r) => r.status === 'OPEN' || r.status === 'IN_PROGRESS')
-              ).length
-            ))
-            .catch(() => { /* non-critical */ });
-        }
+        // Remediation count is updated via onRemediationDataChange callback
 
         // Determine the effective config — may differ if the review
         // was created on an older questionnaire version.
@@ -563,7 +591,7 @@ export default function ReviewPage() {
             )}
 
             {activeTab === 1 && (
-              <RemediationTab reviewId={reviewId} isReadOnly={isReadOnly} />
+              <RemediationTab reviewId={reviewId} isReadOnly={isReadOnly} onDataChange={handleRemediationDataChange} />
             )}
           </Grid>
 
@@ -571,6 +599,7 @@ export default function ReviewPage() {
           <Grid size={{ xs: 12, md: 3 }}>
             <ScoreDashboard
               score={liveScore}
+              residualScore={residualScore}
               scoringConfiguration={configuration.scoringConfiguration}
               answeredCount={answeredCount}
               totalCount={totalQuestionCount}

@@ -434,6 +434,36 @@ export function createRemediationRouter(database) {
     response.status(statusCode).json(body);
   });
 
+  // ── DELETE /api/reviews/:reviewId/remediation/:remediationId ────
+  // Remove a remediation item.
+  router.delete('/:reviewId/remediation/:remediationId', authorize('admin', 'reviewer'), async (request, response) => {
+    let statusCode = 200;
+    let body = null;
+
+    try {
+      const { reviewId, remediationId } = request.params;
+
+      const result = await database.query(
+        `MATCH (review:Review {reviewId: $reviewId})-[:CONTAINS]->(answer:Answer)-[:HAS_REMEDIATION]->(ri:RemediationItem {remediationId: $remediationId})
+         DETACH DELETE ri
+         RETURN answer.domainIndex AS domainIndex`,
+        { reviewId, remediationId }
+      );
+
+      if (result.length === 0) {
+        statusCode = 404;
+        body = { error: 'Remediation item not found' };
+      } else {
+        body = { deleted: true };
+      }
+    } catch (error) {
+      statusCode = 500;
+      body = { error: error.message };
+    }
+
+    response.status(statusCode).json(body);
+  });
+
   // ── PATCH /api/reviews/:reviewId/remediation/:remediationId/accept-risk ─
   // Mark risk as accepted — admin/reviewer only, NOT the submitting user.
   router.patch('/:reviewId/remediation/:remediationId/accept-risk', authorize('admin', 'reviewer'), async (request, response) => {

@@ -379,3 +379,14 @@ export async function acceptRisk(
   });
   return handleResponse(response);
 }
+
+export async function deleteRemediationItem(
+  reviewId: string,
+  remediationId: string,
+): Promise<unknown> {
+  const response = await fetch(`${BASE_URL}/reviews/${reviewId}/remediation/${remediationId}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  return handleResponse(response);
+}
