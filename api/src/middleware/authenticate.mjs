@@ -13,6 +13,15 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 // ────────────────────────────────────────────────────────────────────
+// Localhost detection — dev bypass only when accessed directly
+// ────────────────────────────────────────────────────────────────────
+
+function isLocalhostRequest(request) {
+  const host = (request.headers['x-forwarded-host'] || request.headers.host || '').split(':')[0];
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+// ────────────────────────────────────────────────────────────────────
 // createAuthenticationMiddleware
 // ────────────────────────────────────────────────────────────────────
 
@@ -55,9 +64,13 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
     const authorizationHeader = request.headers.authorization || '';
     const hasToken = authorizationHeader.toLowerCase().startsWith('bearer ');
 
+    // Dev bypass is only allowed from localhost — proxied requests
+    // (e.g. ngrok) must authenticate even in development mode.
+    const allowDevBypass = isDevelopment && isLocalhostRequest(request);
+
     // ── No token present ──────────────────────────────────────────
     if (!hasToken) {
-      if (isDevelopment) {
+      if (allowDevBypass) {
         request.user = { ...developmentUser };
         if (userStore) { await userStore.ensureUser(request.user); }
         next();
@@ -69,7 +82,7 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
 
     // ── Token present — validate via Entra ID JWKS ────────────────
     if (!jwks) {
-      if (isDevelopment) {
+      if (allowDevBypass) {
         // JWKS not configured but token was sent — use dev user
         request.user = { ...developmentUser };
         if (userStore) { await userStore.ensureUser(request.user); }
@@ -126,7 +139,7 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
 
       next();
     } catch (error) {
-      if (isDevelopment) {
+      if (allowDevBypass) {
         // Token invalid in dev — fall back to synthetic user
         console.warn('[asr] Token validation failed in dev mode, using synthetic user:', error.message);
         request.user = { ...developmentUser };
