@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import yaml from 'js-yaml';
-import { loadScoringConfiguration } from '../scoring.mjs';
+import { loadScoringConfiguration, clearScoringConfigurationCache } from '../scoring.mjs';
 
 // ────────────────────────────────────────────────────────────────────
 // Constants
@@ -325,15 +325,8 @@ async function publishDraft(database, draftData, questionnaireLabel, publishedBy
   const questionnaireVersion = createHash('sha256').update(draftJson).digest('hex').slice(0, 12);
 
   // ── Stamp ScoringConfig ───────────────────────────────────────
-  statements.push({
-    cypher: `
-      MATCH (config:ScoringConfig {configId: 'default'})
-      SET config.questionnaireVersion = $questionnaireVersion,
-          config.questionnaireLabel   = $questionnaireLabel,
-          config.updated              = datetime()
-    `,
-    params: { questionnaireVersion, questionnaireLabel },
-  });
+  // NOTE: questionnaireVersion/Label removed from ScoringConfig.
+  // Version pointer now lives on Questionnaire → CURRENT_VERSION.
 
   // ── Create QuestionnaireSnapshot ──────────────────────────────
   const snapshotData = { ...draftData, questionnaireVersion, questionnaireLabel };
@@ -505,7 +498,8 @@ export function createQuestionnaireAdminRouter(database) {
     try {
       const result = await database.query(
         `MATCH (draft:QuestionnaireDraft)
-         RETURN draft
+         OPTIONAL MATCH (draft)-[:BELONGS_TO]->(q:Questionnaire)
+         RETURN draft, q.questionnaireId AS questionnaireId, q.name AS questionnaireName
          ORDER BY draft.updated DESC`
       );
 
@@ -518,6 +512,8 @@ export function createQuestionnaireAdminRouter(database) {
           createdBy: draft.createdBy,
           created: draft.created,
           updated: draft.updated,
+          questionnaireId: record.questionnaireId || null,
+          questionnaireName: record.questionnaireName || null,
         };
       });
     } catch (error) {
@@ -535,6 +531,7 @@ export function createQuestionnaireAdminRouter(database) {
 
     try {
       const label = request.body.label || 'Untitled Draft';
+      const questionnaireId = request.body.questionnaireId || null;
       const creator = request.user?.preferred_username || 'system';
       const draftId = randomUUID();
 
@@ -559,7 +556,17 @@ export function createQuestionnaireAdminRouter(database) {
         }
       );
 
-      body = { draftId, label, status: 'DRAFT' };
+      // Link to questionnaire if specified
+      if (questionnaireId) {
+        await database.query(
+          `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
+           MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+           MERGE (draft)-[:BELONGS_TO]->(q)`,
+          { draftId, questionnaireId }
+        );
+      }
+
+      body = { draftId, label, status: 'DRAFT', questionnaireId };
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };
@@ -700,26 +707,65 @@ export function createQuestionnaireAdminRouter(database) {
             statusCode = 400;
             body = { error: 'Draft validation failed', details: errors };
           } else {
-            const publishResult = await publishDraft(
-              database, draftData, draft.label, publisher
+            // Resolve the questionnaire this draft belongs to
+            const belongsResult = await database.query(
+              `MATCH (draft:QuestionnaireDraft {draftId: $draftId})-[:BELONGS_TO]->(q:Questionnaire)
+               RETURN q.questionnaireId AS questionnaireId`,
+              { draftId }
             );
+            const questionnaireId = belongsResult.length > 0
+              ? belongsResult[0].questionnaireId
+              : null;
 
-            // Mark draft as published
-            await database.query(
-              `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
-               SET draft.status      = 'PUBLISHED',
-                   draft.publishedBy = $publishedBy,
-                   draft.publishedAt = $now,
-                   draft.updated     = $now`,
-              { draftId, publishedBy: publisher, now: new Date().toISOString() }
-            );
+            if (!questionnaireId) {
+              statusCode = 400;
+              body = { error: 'Draft must belong to a questionnaire before publishing. Link it to a template first.' };
+            } else {
+              const publishResult = await publishDraft(
+                database, draftData, draft.label, publisher
+              );
 
-            body = {
-              draftId,
-              status: 'PUBLISHED',
-              questionnaireVersion: publishResult.questionnaireVersion,
-              statementsExecuted: publishResult.statementCount,
-            };
+              // Link snapshot → Questionnaire via VERSION_OF
+              await database.query(
+                `MATCH (s:QuestionnaireSnapshot {version: $version})
+                 MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+                 MERGE (s)-[:VERSION_OF]->(q)`,
+                { version: publishResult.questionnaireVersion, questionnaireId }
+              );
+
+              // Update CURRENT_VERSION on the Questionnaire
+              await database.query(
+                `MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+                 OPTIONAL MATCH (q)-[old:CURRENT_VERSION]->()
+                 DELETE old
+                 WITH q
+                 MATCH (s:QuestionnaireSnapshot {version: $version})
+                 CREATE (q)-[:CURRENT_VERSION]->(s)
+                 SET q.updated = datetime()`,
+                { questionnaireId, version: publishResult.questionnaireVersion }
+              );
+
+              // Mark draft as published
+              await database.query(
+                `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
+                 SET draft.status      = 'PUBLISHED',
+                     draft.publishedBy = $publishedBy,
+                     draft.publishedAt = $now,
+                     draft.updated     = $now`,
+                { draftId, publishedBy: publisher, now: new Date().toISOString() }
+              );
+
+              // Clear scoring config cache since domains/questions changed
+              clearScoringConfigurationCache();
+
+              body = {
+                draftId,
+                status: 'PUBLISHED',
+                questionnaireVersion: publishResult.questionnaireVersion,
+                questionnaireId,
+                statementsExecuted: publishResult.statementCount,
+              };
+            }
           }
         }
       }
@@ -785,13 +831,16 @@ export function createQuestionnaireAdminRouter(database) {
         statusCode = 404;
         body = { error: 'Version not found' };
       } else {
-        // Block deletion of the current live version
-        const scoringConfiguration = await loadScoringConfiguration(database);
-        const currentVersion = scoringConfiguration.questionnaireVersion || null;
+        // Block deletion if this is a CURRENT_VERSION for any questionnaire
+        const currentResult = await database.query(
+          `MATCH (q:Questionnaire)-[:CURRENT_VERSION]->(s:QuestionnaireSnapshot {version: $version})
+           RETURN q.name AS questionnaireName`,
+          { version }
+        );
 
-        if (version === currentVersion) {
+        if (currentResult.length > 0) {
           statusCode = 403;
-          body = { error: 'Cannot delete the current live version. Publish a different version first.' };
+          body = { error: `Cannot delete the current version of "${currentResult[0].questionnaireName}". Publish a different version first.` };
         } else {
           // Count active reviews using this version
           const reviewResult = await database.query(
@@ -905,6 +954,7 @@ export function createQuestionnaireAdminRouter(database) {
       const creator = request.user?.preferred_username || 'system';
       const draftId = randomUUID();
       const draftLabel = label || parsed.questionnaire_label || 'YAML Import';
+      const questionnaireId = request.body.questionnaireId || null;
 
       await database.query(
         `CREATE (draft:QuestionnaireDraft {
@@ -925,7 +975,17 @@ export function createQuestionnaireAdminRouter(database) {
         }
       );
 
-      body = { draftId, label: draftLabel, status: 'DRAFT' };
+      // Link to questionnaire if specified
+      if (questionnaireId) {
+        await database.query(
+          `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
+           MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+           MERGE (draft)-[:BELONGS_TO]->(q)`,
+          { draftId, questionnaireId }
+        );
+      }
+
+      body = { draftId, label: draftLabel, status: 'DRAFT', questionnaireId };
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };
@@ -955,6 +1015,187 @@ export function createQuestionnaireAdminRouter(database) {
       statusCode = 500;
       response.status(statusCode).json({ error: error.message });
     }
+  });
+
+  // ════════════════════════════════════════════════════════════════
+  // Questionnaire template CRUD
+  // ════════════════════════════════════════════════════════════════
+
+  // ── GET /questionnaires — list all templates ──────────────────
+  router.get('/questionnaires', async (_request, response) => {
+    let statusCode = 200;
+    let body = [];
+
+    try {
+      const result = await database.query(
+        `MATCH (q:Questionnaire)
+         OPTIONAL MATCH (q)-[:CURRENT_VERSION]->(s:QuestionnaireSnapshot)
+         RETURN q.questionnaireId AS questionnaireId,
+                q.name            AS name,
+                q.description     AS description,
+                q.active          AS active,
+                q.createdBy       AS createdBy,
+                q.created         AS created,
+                q.updated         AS updated,
+                s.version         AS currentVersion,
+                s.label           AS currentVersionLabel
+         ORDER BY q.name`
+      );
+
+      body = result.map((record) => ({
+        questionnaireId: record.questionnaireId,
+        name: record.name,
+        description: record.description,
+        active: record.active,
+        createdBy: record.createdBy,
+        created: record.created,
+        updated: record.updated,
+        currentVersion: record.currentVersion || null,
+        currentVersionLabel: record.currentVersionLabel || null,
+      }));
+    } catch (error) {
+      statusCode = 500;
+      body = { error: error.message };
+    }
+
+    response.status(statusCode).json(body);
+  });
+
+  // ── POST /questionnaires — create template ────────────────────
+  router.post('/questionnaires', async (request, response) => {
+    let statusCode = 201;
+    let body = null;
+
+    try {
+      const { name, description } = request.body;
+
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        statusCode = 400;
+        body = { error: 'name is required' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
+      const creator = request.user?.preferred_username || 'system';
+      const questionnaireId = randomUUID();
+
+      await database.query(
+        `CREATE (q:Questionnaire {
+           questionnaireId: $questionnaireId,
+           name:            $name,
+           description:     $description,
+           active:          true,
+           createdBy:       $createdBy,
+           created:         $now,
+           updated:         $now
+         })`,
+        {
+          questionnaireId,
+          name: name.trim(),
+          description: description || '',
+          createdBy: creator,
+          now: new Date().toISOString(),
+        }
+      );
+
+      body = { questionnaireId, name: name.trim(), active: true };
+    } catch (error) {
+      statusCode = 500;
+      body = { error: error.message };
+    }
+
+    response.status(statusCode).json(body);
+  });
+
+  // ── PATCH /questionnaires/:questionnaireId ────────────────────
+  router.patch('/questionnaires/:questionnaireId', async (request, response) => {
+    let statusCode = 200;
+    let body = null;
+
+    try {
+      const { questionnaireId } = request.params;
+      const { name, description, active } = request.body;
+
+      const existing = await database.query(
+        `MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+         RETURN q.questionnaireId AS id`,
+        { questionnaireId }
+      );
+
+      if (existing.length === 0) {
+        statusCode = 404;
+        body = { error: 'Questionnaire not found' };
+      } else {
+        const updates = [];
+        const params = { questionnaireId, now: new Date().toISOString() };
+
+        if (name !== undefined) {
+          updates.push('q.name = $name');
+          params.name = name;
+        }
+        if (description !== undefined) {
+          updates.push('q.description = $description');
+          params.description = description;
+        }
+        if (active !== undefined) {
+          updates.push('q.active = $active');
+          params.active = active;
+        }
+        updates.push('q.updated = $now');
+
+        await database.query(
+          `MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+           SET ${updates.join(', ')}`,
+          params
+        );
+
+        body = { questionnaireId, updated: true };
+      }
+    } catch (error) {
+      statusCode = 500;
+      body = { error: error.message };
+    }
+
+    response.status(statusCode).json(body);
+  });
+
+  // ── DELETE /questionnaires/:questionnaireId ───────────────────
+  router.delete('/questionnaires/:questionnaireId', async (request, response) => {
+    let statusCode = 200;
+    let body = null;
+
+    try {
+      const { questionnaireId } = request.params;
+
+      // Check for reviews using any version of this questionnaire
+      const reviewResult = await database.query(
+        `MATCH (r:Review)-[:USES_QUESTIONNAIRE]->(q:Questionnaire {questionnaireId: $questionnaireId})
+         WHERE r.active = true
+         RETURN count(r) AS reviewCount`,
+        { questionnaireId }
+      );
+      const reviewCount = reviewResult[0]?.reviewCount?.low ?? reviewResult[0]?.reviewCount ?? 0;
+
+      if (reviewCount > 0) {
+        statusCode = 409;
+        body = { error: `Cannot delete questionnaire with ${reviewCount} active assessment(s).` };
+      } else {
+        // Delete questionnaire + all linked snapshots and drafts
+        await database.query(
+          `MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+           OPTIONAL MATCH (s:QuestionnaireSnapshot)-[:VERSION_OF]->(q)
+           OPTIONAL MATCH (d:QuestionnaireDraft)-[:BELONGS_TO]->(q)
+           DETACH DELETE q, s, d`,
+          { questionnaireId }
+        );
+        body = { deleted: true };
+      }
+    } catch (error) {
+      statusCode = 500;
+      body = { error: error.message };
+    }
+
+    response.status(statusCode).json(body);
   });
 
   return router;

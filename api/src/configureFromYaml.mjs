@@ -514,16 +514,8 @@ async function configureFromYaml() {
   const cleanupStatements = generateCleanupStatements(data);
   const allStatements = [...domainStatements, ...cleanupStatements];
 
-  // Stamp questionnaireVersion on ScoringConfig singleton
+  // Stamp questionnaireVersion (hash of raw YAML)
   const questionnaireVersion = createHash('sha256').update(raw).digest('hex').slice(0, 12);
-  allStatements.push({
-    cypher: `
-      MATCH (config:ScoringConfig {configId: 'default'})
-      SET config.questionnaireVersion = $questionnaireVersion,
-          config.updated = datetime()
-    `,
-    params: { questionnaireVersion },
-  });
 
   // Store complete questionnaire snapshot for historical review support
   const snapshot = buildSnapshot(data, questionnaireVersion);
@@ -544,13 +536,29 @@ async function configureFromYaml() {
     },
   });
 
-  // Also stamp the label on ScoringConfig for the versions endpoint
+  // Create or match Questionnaire template node and wire relationships
   allStatements.push({
     cypher: `
-      MATCH (config:ScoringConfig {configId: 'default'})
-      SET config.questionnaireLabel = $questionnaireLabel
+      MERGE (q:Questionnaire {name: $name})
+        ON CREATE SET
+          q.questionnaireId = randomUUID(),
+          q.description     = '',
+          q.active          = true,
+          q.createdBy       = 'cli',
+          q.created         = datetime(),
+          q.updated         = datetime()
+      WITH q
+      MATCH (s:QuestionnaireSnapshot {version: $version})
+      MERGE (s)-[:VERSION_OF]->(q)
+      WITH q
+      OPTIONAL MATCH (q)-[old:CURRENT_VERSION]->()
+      DELETE old
+      WITH q
+      MATCH (s:QuestionnaireSnapshot {version: $version})
+      CREATE (q)-[:CURRENT_VERSION]->(s)
+      SET q.updated = datetime()
     `,
-    params: { questionnaireLabel },
+    params: { name: questionnaireLabel, version: questionnaireVersion },
   });
 
   console.log(`Generated ${allStatements.length} Cypher statements (version: ${questionnaireVersion})`);

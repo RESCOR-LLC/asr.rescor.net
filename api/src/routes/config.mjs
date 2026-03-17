@@ -80,10 +80,24 @@ export function createConfigRouter(database) {
         const csfLookupMap = await loadCsfLookup(database);
         const tagConfigMap = await loadComplianceTagConfigs(database);
 
+        const questionnairesResult = await database.query(
+          `MATCH (q:Questionnaire)
+           OPTIONAL MATCH (q)-[:CURRENT_VERSION]->(s:QuestionnaireSnapshot)
+           RETURN q.questionnaireId AS questionnaireId,
+                  q.name            AS name,
+                  q.active          AS active,
+                  s.version         AS currentVersion
+           ORDER BY q.name`
+        );
+
         body = {
           scoringConfiguration,
-          questionnaireVersion: scoringConfiguration.questionnaireVersion || null,
-          questionnaireLabel: scoringConfiguration.questionnaireLabel || null,
+          questionnaires: questionnairesResult.map((record) => ({
+            questionnaireId: record.questionnaireId,
+            name: record.name,
+            active: record.active,
+            currentVersion: record.currentVersion || null,
+          })),
           classification: buildClassificationResponse(classificationResult),
           source: buildTranscendentalResponse(sourceResult, 'sourceQuestion', 'source'),
           environment: buildTranscendentalResponse(environmentResult, 'environmentQuestion', 'environment'),
@@ -116,31 +130,48 @@ export function createConfigRouter(database) {
   });
 
   // ── Available questionnaire versions ───────────────────────────
-  router.get('/versions', async (_request, response) => {
+  router.get('/versions', async (request, response) => {
     let statusCode = 200;
     let body = null;
 
     try {
-      const scoringConfiguration = await loadScoringConfiguration(database);
-      const currentVersion = scoringConfiguration.questionnaireVersion || null;
+      const questionnaireId = request.query.questionnaireId || null;
 
-      const result = await database.query(
-        `MATCH (snapshot:QuestionnaireSnapshot)
-         OPTIONAL MATCH (review:Review {questionnaireVersion: snapshot.version, active: true})
-         RETURN snapshot.version AS version,
-                snapshot.label   AS label,
-                snapshot.created AS created,
-                count(review)    AS reviewCount
-         ORDER BY snapshot.created DESC`
+      // Determine current versions from Questionnaire → CURRENT_VERSION
+      const currentVersionsResult = await database.query(
+        `MATCH (q:Questionnaire)-[:CURRENT_VERSION]->(s:QuestionnaireSnapshot)
+         RETURN s.version AS version`
+      );
+      const currentVersionSet = new Set(
+        currentVersionsResult.map((record) => record.version)
       );
 
+      // Build snapshot query with optional questionnaireId filter
+      const snapshotCypher = questionnaireId
+        ? `MATCH (snapshot:QuestionnaireSnapshot)-[:VERSION_OF]->(q:Questionnaire {questionnaireId: $questionnaireId})
+           OPTIONAL MATCH (review:Review {questionnaireVersion: snapshot.version, active: true})
+           RETURN snapshot.version AS version,
+                  snapshot.label   AS label,
+                  snapshot.created AS created,
+                  count(review)    AS reviewCount
+           ORDER BY snapshot.created DESC`
+        : `MATCH (snapshot:QuestionnaireSnapshot)
+           OPTIONAL MATCH (review:Review {questionnaireVersion: snapshot.version, active: true})
+           RETURN snapshot.version AS version,
+                  snapshot.label   AS label,
+                  snapshot.created AS created,
+                  count(review)    AS reviewCount
+           ORDER BY snapshot.created DESC`;
+
+      const snapshotParams = questionnaireId ? { questionnaireId } : {};
+      const result = await database.query(snapshotCypher, snapshotParams);
+
       body = {
-        currentVersion,
         versions: result.map((record) => ({
           version: record.version,
           label: record.label,
           created: record.created,
-          current: record.version === currentVersion,
+          current: currentVersionSet.has(record.version),
           reviewCount: record.reviewCount?.low ?? record.reviewCount ?? 0,
         })),
       };
