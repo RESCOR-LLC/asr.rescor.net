@@ -40,9 +40,10 @@ import EditNoteIcon from '@mui/icons-material/EditNote';
 import DescriptionIcon from '@mui/icons-material/Description';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import { brandColors } from '../theme/theme';
-import { fetchReviews, fetchVersions, createReview, renameReview, deleteReview, downloadQuestionnaireDocx, downloadQuestionnaireXlsx } from '../lib/apiClient';
+import { fetchReviews, fetchVersions, fetchQuestionnaires, createReview, renameReview, deleteReview, downloadQuestionnaireDocx, downloadQuestionnaireXlsx } from '../lib/apiClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import UserMenu from '../components/UserMenu';
+import type { QuestionnaireTemplate } from '../lib/types';
 
 // ────────────────────────────────────────────────────────────────────
 // Rating color map
@@ -67,6 +68,7 @@ interface ReviewSummary {
   rating: string | null;
   rskNormalized: number | null;
   questionnaireVersion: string | null;
+  questionnaireName: string | null;
   created: string;
 }
 
@@ -81,7 +83,7 @@ const compactHeadCell = { ...compactCell, fontWeight: 700 } as const;
 // Sort helpers
 // ────────────────────────────────────────────────────────────────────
 
-type SortColumn = 'applicationName' | 'assessor' | 'status' | 'rating' | 'rskNormalized' | 'version' | 'created';
+type SortColumn = 'applicationName' | 'assessor' | 'status' | 'rating' | 'rskNormalized' | 'questionnaire' | 'version' | 'created';
 type SortDirection = 'asc' | 'desc';
 
 export default function DashboardPage() {
@@ -90,6 +92,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [applicationName, setApplicationName] = useState('');
+  const [questionnaires, setQuestionnaires] = useState<QuestionnaireTemplate[]>([]);
+  const [selectedQuestionnaireId, setSelectedQuestionnaireId] = useState('');
   const { canCreate, canEdit, isAdmin } = useCurrentUser();
 
   // Filter state
@@ -132,6 +136,13 @@ export default function DashboardPage() {
       });
       setVersionMap(map);
     }).catch(() => { /* versions endpoint unavailable — fall back to hash */ });
+    fetchQuestionnaires()
+      .then((data) => {
+        setQuestionnaires(data);
+        const active = data.filter((q) => q.active);
+        if (active.length === 1) setSelectedQuestionnaireId(active[0].questionnaireId);
+      })
+      .catch(() => { /* questionnaires endpoint unavailable */ });
   }, []);
 
   // ── Version display helper ──────────────────────────────────────
@@ -191,6 +202,9 @@ export default function DashboardPage() {
         case 'rskNormalized':
           result = (a.rskNormalized ?? -1) - (b.rskNormalized ?? -1);
           break;
+        case 'questionnaire':
+          result = (a.questionnaireName || '').localeCompare(b.questionnaireName || '');
+          break;
         case 'version':
           result = versionDisplay(a.questionnaireVersion).ordinal - versionDisplay(b.questionnaireVersion).ordinal;
           break;
@@ -226,7 +240,8 @@ export default function DashboardPage() {
 
   async function handleCreate(): Promise<void> {
     if (applicationName.trim()) {
-      const result = (await createReview(applicationName.trim())) as Record<string, unknown>;
+      const questionnaireId = selectedQuestionnaireId || undefined;
+      const result = (await createReview(applicationName.trim(), '', questionnaireId)) as Record<string, unknown>;
       const created = (result.review ?? result) as ReviewSummary;
       setDialogOpen(false);
       setApplicationName('');
@@ -374,6 +389,7 @@ export default function DashboardPage() {
                 {([
                   ['applicationName', 'Application'],
                   ['assessor', 'Assessor'],
+                  ['questionnaire', 'Questionnaire'],
                   ['status', 'Status'],
                   ['rating', 'Rating'],
                   ['rskNormalized', 'Score'],
@@ -405,6 +421,11 @@ export default function DashboardPage() {
                   >
                     <TableCell>{review.applicationName}</TableCell>
                     <TableCell>{review.assessor}</TableCell>
+                    <TableCell>
+                      <Typography variant="caption" noWrap sx={{ maxWidth: 160, display: 'block' }}>
+                        {review.questionnaireName || '—'}
+                      </Typography>
+                    </TableCell>
                     <TableCell>
                       <Chip
                         label={review.status}
@@ -458,7 +479,7 @@ export default function DashboardPage() {
               })}
               {filteredReviews.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={canEdit ? 8 : 7} align="center">
+                  <TableCell colSpan={canEdit ? 9 : 8} align="center">
                     <Typography color="text.secondary" sx={{ py: 3, fontSize: '0.875rem' }}>
                       {loading
                         ? 'Loading assessments…'
@@ -486,6 +507,25 @@ export default function DashboardPage() {
             value={applicationName}
             onChange={(event) => setApplicationName(event.target.value)}
           />
+          {questionnaires.filter((q) => q.active).length > 1 && (
+            <FormControl fullWidth margin="dense">
+              <InputLabel>Questionnaire</InputLabel>
+              <Select
+                value={selectedQuestionnaireId}
+                label="Questionnaire"
+                onChange={(event) => setSelectedQuestionnaireId(event.target.value)}
+              >
+                {questionnaires.filter((q) => q.active).map((q) => (
+                  <MenuItem key={q.questionnaireId} value={q.questionnaireId}>{q.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          {questionnaires.filter((q) => q.active).length === 1 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Questionnaire: {questionnaires.find((q) => q.active)?.name}
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>

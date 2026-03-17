@@ -133,11 +133,12 @@ export async function renameReview(
 export async function createReview(
   applicationName: string,
   notes: string = '',
+  questionnaireId?: string,
 ): Promise<unknown> {
   const response = await fetch(`${BASE_URL}/reviews`, {
     method: 'POST',
     headers: await authHeaders(),
-    body: JSON.stringify({ applicationName, notes }),
+    body: JSON.stringify({ applicationName, notes, questionnaireId }),
   });
   return handleResponse(response);
 }
@@ -396,9 +397,15 @@ export async function deleteRemediationItem(
 // Questionnaire Admin — Draft CRUD, Import, Export
 // ════════════════════════════════════════════════════════════════════
 
-import type { DraftSummary, DraftDetail } from './types';
+import type { DraftSummary, DraftDetail, QuestionnaireTemplate } from './types';
 
 const ADMIN_Q = `${BASE_URL}/admin/questionnaire`;
+
+export async function fetchQuestionnaires(): Promise<QuestionnaireTemplate[]> {
+  const headers = await authHeaders();
+  const response = await fetch(`${ADMIN_Q}/questionnaires`, { headers });
+  return (await handleResponse(response)) as QuestionnaireTemplate[];
+}
 
 export async function fetchDrafts(): Promise<DraftSummary[]> {
   const headers = await authHeaders();
@@ -406,11 +413,11 @@ export async function fetchDrafts(): Promise<DraftSummary[]> {
   return (await handleResponse(response)) as DraftSummary[];
 }
 
-export async function createDraft(label?: string): Promise<DraftDetail> {
+export async function createDraft(label?: string, questionnaireId?: string): Promise<DraftDetail> {
   const response = await fetch(`${ADMIN_Q}/drafts`, {
     method: 'POST',
     headers: await authHeaders(),
-    body: JSON.stringify({ label }),
+    body: JSON.stringify({ label, questionnaireId }),
   });
   return (await handleResponse(response)) as DraftDetail;
 }

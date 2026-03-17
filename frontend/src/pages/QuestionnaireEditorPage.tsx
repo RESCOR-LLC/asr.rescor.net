@@ -45,6 +45,7 @@ import {
   exportQuestionnaire,
   fetchDraft,
   fetchDrafts,
+  fetchQuestionnaires,
   fetchVersions,
   importYaml,
   publishDraft,
@@ -55,6 +56,7 @@ import type {
   DraftDomain,
   DraftQuestion,
   DraftSummary,
+  QuestionnaireTemplate,
   QuestionnaireVersion,
 } from '../lib/types';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -130,6 +132,10 @@ export default function QuestionnaireEditorPage() {
   const [versions, setVersions] = useState<QuestionnaireVersion[]>([]);
   const [deleteVersionTarget, setDeleteVersionTarget] = useState<QuestionnaireVersion | null>(null);
 
+  // Questionnaire templates
+  const [questionnaires, setQuestionnaires] = useState<QuestionnaireTemplate[]>([]);
+  const [newDraftQuestionnaireId, setNewDraftQuestionnaireId] = useState('');
+
   // ── Load drafts on mount ──────────────────────────────────────
 
   const loadDrafts = useCallback(async () => {
@@ -150,11 +156,23 @@ export default function QuestionnaireEditorPage() {
     }
   }, []);
 
+  const loadQuestionnaires = useCallback(async () => {
+    try {
+      const data = await fetchQuestionnaires();
+      setQuestionnaires(data);
+      const active = data.filter((q) => q.active);
+      if (active.length === 1) setNewDraftQuestionnaireId(active[0].questionnaireId);
+    } catch {
+      // questionnaires endpoint unavailable
+    }
+  }, []);
+
   useEffect(() => {
     if (!isAdmin) return;
     loadDrafts();
     loadVersions();
-  }, [isAdmin, loadDrafts, loadVersions]);
+    loadQuestionnaires();
+  }, [isAdmin, loadDrafts, loadVersions, loadQuestionnaires]);
 
   // ── Open a draft for editing ──────────────────────────────────
 
@@ -179,7 +197,8 @@ export default function QuestionnaireEditorPage() {
   async function handleCreateDraft(): Promise<void> {
     setLoading(true);
     try {
-      const detail = await createDraft(newDraftLabel || undefined);
+      const questionnaireId = newDraftQuestionnaireId || undefined;
+      const detail = await createDraft(newDraftLabel || undefined, questionnaireId);
       setActiveDraftId(detail.draftId);
       setDraftLabel(detail.label);
       setDraftStatus(detail.status);
@@ -571,6 +590,7 @@ export default function QuestionnaireEditorPage() {
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       {draft.createdBy} &middot; Updated {new Date(draft.updated).toLocaleString()}
+                      {draft.questionnaireName ? ` \u00b7 ${draft.questionnaireName}` : ''}
                     </Typography>
                   </Box>
                   <Stack direction="row" alignItems="center" spacing={1}>
@@ -679,6 +699,25 @@ export default function QuestionnaireEditorPage() {
               onChange={(event) => setNewDraftLabel(event.target.value)}
               sx={{ mt: 1 }}
             />
+            {questionnaires.filter((q) => q.active).length > 1 && (
+              <FormControl fullWidth sx={{ mt: 2 }}>
+                <InputLabel>Questionnaire</InputLabel>
+                <Select
+                  value={newDraftQuestionnaireId}
+                  label="Questionnaire"
+                  onChange={(event: SelectChangeEvent) => setNewDraftQuestionnaireId(event.target.value)}
+                >
+                  {questionnaires.filter((q) => q.active).map((q) => (
+                    <MenuItem key={q.questionnaireId} value={q.questionnaireId}>{q.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            {questionnaires.filter((q) => q.active).length === 1 && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Questionnaire: {questionnaires.find((q) => q.active)?.name}
+              </Typography>
+            )}
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               Creates a copy of the current live questionnaire for editing.
             </Typography>

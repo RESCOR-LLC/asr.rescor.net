@@ -86,10 +86,21 @@ export interface DeploymentArchetype {
   sortOrder: number;
 }
 
+export interface QuestionnaireTemplate {
+  questionnaireId: string;
+  name: string;
+  description: string;
+  active: boolean;
+  createdBy: string;
+  created: string;
+  updated: string;
+  currentVersion: string | null;
+  currentVersionLabel: string | null;
+}
+
 export interface AppConfiguration {
   scoringConfiguration: import('./scoring').ScoringConfiguration;
-  questionnaireVersion: string | null;
-  questionnaireLabel: string | null;
+  questionnaires: QuestionnaireTemplate[];
   classification: ClassificationConfig;
   source: SourceConfig;
   environment: EnvironmentConfig;
@@ -197,6 +208,8 @@ export interface DraftSummary {
   createdBy: string;
   created: string;
   updated: string;
+  questionnaireId: string | null;
+  questionnaireName: string | null;
 }
 
 export interface DraftQuestion {
