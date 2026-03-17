@@ -561,6 +561,17 @@ async function configureFromYaml() {
     params: { name: questionnaireLabel, version: questionnaireVersion },
   });
 
+  // Link any unlinked GateQuestion nodes to this questionnaire
+  allStatements.push({
+    cypher: `
+      MATCH (q:Questionnaire {name: $name})
+      MATCH (gq:GateQuestion)
+      WHERE gq.active = true AND NOT (gq)-[:APPLIES_TO]->(q)
+      MERGE (gq)-[:APPLIES_TO]->(q)
+    `,
+    params: { name: questionnaireLabel },
+  });
+
   console.log(`Generated ${allStatements.length} Cypher statements (version: ${questionnaireVersion})`);
 
   // Connect and execute

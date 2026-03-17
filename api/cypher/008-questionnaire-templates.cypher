@@ -58,3 +58,8 @@ WHERE NOT (r)-[:USES_QUESTIONNAIRE]->(:Questionnaire)
   AND r.questionnaireVersion IS NOT NULL
 MATCH (s:QuestionnaireSnapshot {version: r.questionnaireVersion})-[:VERSION_OF]->(q:Questionnaire)
 MERGE (r)-[:USES_QUESTIONNAIRE]->(q)
+
+MATCH (gq:GateQuestion) // Migration: link unlinked gates to all active questionnaires
+WHERE NOT (gq)-[:APPLIES_TO]->(:Questionnaire)
+MATCH (q:Questionnaire {active: true})
+MERGE (gq)-[:APPLIES_TO]->(q)

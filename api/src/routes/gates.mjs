@@ -19,17 +19,23 @@ export function createGateRouter(database) {
   const router = Router();
 
   // ── GET /gates — list active gate questions (config-level) ────
-  router.get('/gates', async (_request, response) => {
+  router.get('/gates', async (request, response) => {
     let statusCode = 200;
     let body = [];
 
     try {
-      const result = await database.query(
-        `MATCH (gq:GateQuestion)
-         WHERE gq.active = true
-         RETURN gq
-         ORDER BY gq.sortOrder`
-      );
+      const { questionnaireId } = request.query;
+      const cypher = questionnaireId
+        ? `MATCH (gq:GateQuestion)-[:APPLIES_TO]->(q:Questionnaire {questionnaireId: $questionnaireId})
+           WHERE gq.active = true
+           RETURN gq
+           ORDER BY gq.sortOrder`
+        : `MATCH (gq:GateQuestion)
+           WHERE gq.active = true
+           RETURN gq
+           ORDER BY gq.sortOrder`;
+
+      const result = await database.query(cypher, { questionnaireId: questionnaireId || '' });
 
       body = result.map((record) => {
         const gate = record.gq || record;
@@ -61,8 +67,22 @@ export function createGateRouter(database) {
         const { reviewId } = request.params;
 
         const result = await database.query(
-          `MATCH (gq:GateQuestion)
-           WHERE gq.active = true
+          `MATCH (review:Review {reviewId: $reviewId})
+           OPTIONAL MATCH (review)-[:USES_QUESTIONNAIRE]->(q:Questionnaire)
+           WITH review, q
+           CALL {
+             WITH q
+             WITH q WHERE q IS NOT NULL
+             MATCH (gq:GateQuestion)-[:APPLIES_TO]->(q)
+             WHERE gq.active = true
+             RETURN gq
+             UNION
+             WITH q
+             WITH q WHERE q IS NULL
+             MATCH (gq:GateQuestion)
+             WHERE gq.active = true
+             RETURN gq
+           }
            OPTIONAL MATCH (ga:GateAnswer {reviewId: $reviewId, gateId: gq.gateId})
            RETURN gq, ga
            ORDER BY gq.sortOrder`,
@@ -249,16 +269,25 @@ async function applyPreFillRules(database, reviewId, gateId, rules, respondedBy,
   const classificationFactor = reviewResult[0]?.classificationFactor ?? 0;
 
   for (const rule of rules) {
-    const { domainIndex, questionIndex, choiceIndex: targetChoiceIndex } = rule;
+    const { questionId: ruleQuestionId, domainIndex, questionIndex, choiceIndex: targetChoiceIndex } = rule;
 
     if (targetChoiceIndex == null) continue;
 
-    // Load question details for score calculation
-    const questionResult = await database.query(
-      `MATCH (question:Question {domainIndex: $domainIndex, questionIndex: $questionIndex})
-       RETURN question`,
-      { domainIndex, questionIndex }
-    );
+    // Support both questionId-based and positional lookup
+    let questionResult;
+    if (ruleQuestionId) {
+      questionResult = await database.query(
+        `MATCH (question:Question {questionId: $questionId})
+         RETURN question`,
+        { questionId: ruleQuestionId }
+      );
+    } else {
+      questionResult = await database.query(
+        `MATCH (question:Question {domainIndex: $domainIndex, questionIndex: $questionIndex})
+         RETURN question`,
+        { domainIndex, questionIndex }
+      );
+    }
 
     if (questionResult.length === 0) continue;
 
@@ -279,6 +308,10 @@ async function applyPreFillRules(database, reviewId, gateId, rules, respondedBy,
     const weightValue = weightTierMap[question.weightTier] ?? 0;
     const measurement = questionMeasurement(rawScore, weightValue, classificationFactor);
 
+    // Use indices from the resolved question node (handles both lookup modes)
+    const resolvedDomainIndex = question.domainIndex;
+    const resolvedQuestionIndex = question.questionIndex;
+
     // MERGE answer with gatedBy marker
     await database.query(
       `MATCH (review:Review {reviewId: $reviewId})
@@ -297,8 +330,8 @@ async function applyPreFillRules(database, reviewId, gateId, rules, respondedBy,
        MERGE (answer)-[:ANSWERS]->(question)`,
       {
         reviewId,
-        domainIndex,
-        questionIndex,
+        domainIndex: resolvedDomainIndex,
+        questionIndex: resolvedQuestionIndex,
         choiceText,
         rawScore,
         weightTier: question.weightTier,
@@ -309,7 +342,7 @@ async function applyPreFillRules(database, reviewId, gateId, rules, respondedBy,
       }
     );
 
-    preFilled.push({ domainIndex, questionIndex, choiceText, rawScore });
+    preFilled.push({ domainIndex: resolvedDomainIndex, questionIndex: resolvedQuestionIndex, choiceText, rawScore });
   }
 
   return preFilled;
