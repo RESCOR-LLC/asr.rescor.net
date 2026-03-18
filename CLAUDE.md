@@ -30,7 +30,8 @@ See [docs/PROJECT-PATTERNS.md](docs/PROJECT-PATTERNS.md) for ASR-specific conven
 - Scoring: RSK/STORM model — all parameters loaded from Neo4j (zero hardcoded constants)
 - Four tuning dials: ScoringConfig, ClassificationChoice.factor, WeightTier.value, Question.choiceScores
 - Core packages: @rescor/core-db (Neo4jOperations), @rescor/core-config (Infisical), @rescor/core-utils
-- Cypher DDL: api/cypher/001-constraints, 002-seed-questionnaire, 003-seed-csf
+- Cypher DDL: api/cypher/001-constraints through 010-tenant-gates (run via cypher:setup); new files must also be registered in api/src/setupDatabase.mjs SCRIPTS array
+- Default/demo tenant: `tenantId: 'demo'` — all seed migrations stamp global nodes with this ID
 - Client overlay: `--overlay <dir>` CLI arg to cypher:setup for client-specific cypher scripts
 - YAML-to-Cypher: `npm run cypher:configure -w api -- <path/to/asr_questions.yaml>`
 - npm workspaces: api, frontend

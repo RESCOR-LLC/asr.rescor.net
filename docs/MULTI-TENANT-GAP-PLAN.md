@@ -18,7 +18,7 @@ Current baseline (what already works):
 
 ---
 
-## Step 1 — IDOR: Tenant guard on `GET /reviews/:reviewId` and all sub-routes
+## Step 1 — IDOR: Tenant guard on `GET /reviews/:reviewId` and all sub-routes ✅ IMPLEMENTED
 
 **Root cause**: `GET /:reviewId` (reviews.mjs:82) matches only by `reviewId` — no tenant filter.
 `requireOwnershipOrAdmin` checks `createdBy` but not tenant membership.
@@ -99,7 +99,7 @@ router.put('/:reviewId/answers', authorize('admin', 'reviewer'), async (request,
 
 ---
 
-## Step 2 — Rate limiting
+## Step 2 — Rate limiting ✅ IMPLEMENTED
 
 **Gap**: No throttling. `server.mjs:31` calls `cors()` with no config.
 
@@ -213,27 +213,27 @@ Add `CORS_ALLOWED_ORIGINS` to the Infisical production secret set. Leave unset i
 
 ---
 
-## Step 5 — Tenant-scope questionnaire / scoring config
+## Step 5 — Tenant-scope questionnaire / scoring config ✅ IMPLEMENTED
 
 **Gap**: `loadScoringConfiguration` (scoring.mjs:20) uses a module-level singleton and hardcodes
 `ScoringConfig {configId: 'default'}` — no tenant filter. All draft/snapshot Cypher is unscoped.
 
-### 5a. `api/cypher/008-tenant-config.cypher` (NEW)
+### 5a. `api/cypher/009-tenant-config.cypher` (NEW)
 
 ```cypher
 CREATE INDEX scoring_config_tenant_idx IF NOT EXISTS FOR (s:ScoringConfig)         ON (s.tenantId);
 CREATE INDEX snapshot_tenant_idx       IF NOT EXISTS FOR (s:QuestionnaireSnapshot) ON (s.tenantId);
 CREATE INDEX draft_tenant_idx          IF NOT EXISTS FOR (d:QuestionnaireDraft)    ON (d.tenantId);
 
-// Migration: stamp existing global nodes with RESCOR tenantId
+// Migration: stamp existing global nodes with the demo tenant
 MATCH (sc:ScoringConfig {configId: 'default'}) WHERE sc.tenantId IS NULL
-SET sc.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET sc.tenantId = 'demo';
 
 MATCH (snap:QuestionnaireSnapshot) WHERE snap.tenantId IS NULL
-SET snap.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET snap.tenantId = 'demo';
 
 MATCH (d:QuestionnaireDraft) WHERE d.tenantId IS NULL
-SET d.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET d.tenantId = 'demo';
 ```
 
 ### 5b. `api/src/scoring.mjs` — per-tenant cache
@@ -303,21 +303,21 @@ MATCH (config:ScoringConfig {tenantId: $tenantId})
 
 ---
 
-## Step 6 — Tenant-scope gates and compliance config
+## Step 6 — Tenant-scope gates and compliance config ✅ IMPLEMENTED
 
 **Gap**: `GateQuestion` and `ComplianceTagConfig` nodes are global.
 
-### 6a. `api/cypher/009-tenant-gates.cypher` (NEW)
+### 6a. `api/cypher/010-tenant-gates.cypher` (NEW)
 
 ```cypher
 CREATE INDEX gate_tenant_idx           IF NOT EXISTS FOR (g:GateQuestion)       ON (g.tenantId);
 CREATE INDEX compliance_tag_tenant_idx IF NOT EXISTS FOR (c:ComplianceTagConfig) ON (c.tenantId);
 
 MATCH (g:GateQuestion) WHERE g.tenantId IS NULL
-SET g.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET g.tenantId = 'demo';
 
 MATCH (c:ComplianceTagConfig) WHERE c.tenantId IS NULL
-SET c.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET c.tenantId = 'demo';
 ```
 
 ### 6b. `api/src/routes/gates.mjs`
@@ -353,7 +353,7 @@ async function loadComplianceTagConfigs(database, tenantId) {
 
 **Gap**: No logging for review creation, answer changes, role assignments, or publish events.
 
-### 7a. `api/cypher/010-audit-events.cypher` (NEW)
+### 7a. `api/cypher/011-audit-events.cypher` (NEW)
 
 ```cypher
 CREATE CONSTRAINT audit_event_id    IF NOT EXISTS FOR (a:AuditEvent) REQUIRE a.eventId IS UNIQUE;
@@ -466,7 +466,7 @@ export class TenantStore {
     await this.database.query(
       `MATCH (src:ScoringConfig {configId: 'default'})
        MATCH (snap:QuestionnaireSnapshot {version: src.questionnaireVersion,
-                                          tenantId: '319d0c76-9d6c-4f59-b427-299fc75b1e62'})
+                                          tenantId: 'demo'})
        MERGE (copy:QuestionnaireSnapshot {version: snap.version, tenantId: $tenantId})
        ON CREATE SET copy.label   = snap.label,
                      copy.data    = snap.data,
@@ -507,7 +507,7 @@ Emit `'tenant.create'` / `'tenant.delete'` to `AuditEventStore` on each mutation
 
 **Gap**: Auth events accumulate indefinitely.
 
-### 9a. `api/cypher/011-apoc-ttl.cypher` (NEW)
+### 9a. `api/cypher/012-apoc-ttl.cypher` (NEW)
 
 ```cypher
 // Back-fill TTL on existing nodes (90 days from event timestamp)
@@ -570,11 +570,11 @@ NEO4J_dbms_security_procedures_unrestricted: "apoc.ttl.*"
 | 2 — Rate limit | `server.mjs` | `rateLimiter.mjs` |
 | 3 — AuthEvent tenantId | `AuthEventStore.mjs`, `authenticate.mjs`, `007-auth-events.cypher` | — |
 | 4 — CORS | `server.mjs` | — |
-| 5 — Config scoping | `scoring.mjs`, `config.mjs`, `questionnaireAdmin.mjs` | `008-tenant-config.cypher` |
-| 6 — Gates scoping | `gates.mjs`, `config.mjs` | `009-tenant-gates.cypher` |
-| 7 — AuditEvent | `reviews.mjs`, `answers.mjs`, `admin.mjs`, `server.mjs` | `AuditEventStore.mjs`, `010-audit-events.cypher` |
+| 5 — Config scoping | `scoring.mjs`, `config.mjs`, `questionnaireAdmin.mjs` | `009-tenant-config.cypher` |
+| 6 — Gates scoping | `gates.mjs`, `config.mjs` | `010-tenant-gates.cypher` |
+| 7 — AuditEvent | `reviews.mjs`, `answers.mjs`, `admin.mjs`, `server.mjs` | `AuditEventStore.mjs`, `011-audit-events.cypher` |
 | 8 — Provisioning | `admin.mjs` | `TenantStore.mjs` |
-| 9 — APOC TTL | `AuthEventStore.mjs`, `docker-compose.yml` | `011-apoc-ttl.cypher` |
+| 9 — APOC TTL | `AuthEventStore.mjs`, `docker-compose.yml` | `012-apoc-ttl.cypher` |
 | 10 — Neo4j hardening | Infisical secrets, `docker-compose.yml` | — |
 
 ---

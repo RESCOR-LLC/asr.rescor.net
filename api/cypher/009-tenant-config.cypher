@@ -17,17 +17,17 @@ CREATE INDEX snapshot_tenant_idx IF NOT EXISTS
 CREATE INDEX draft_tenant_idx IF NOT EXISTS
   FOR (d:QuestionnaireDraft) ON (d.tenantId);
 
-// Migration: stamp the global ScoringConfig with the RESCOR tenant
+// Migration: stamp the global ScoringConfig with the demo tenant
 MATCH (sc:ScoringConfig {configId: 'default'})
 WHERE sc.tenantId IS NULL
-SET sc.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET sc.tenantId = 'demo';
 
-// Migration: stamp all existing snapshots with the RESCOR tenant
+// Migration: stamp all existing snapshots with the demo tenant
 MATCH (snap:QuestionnaireSnapshot)
 WHERE snap.tenantId IS NULL
-SET snap.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET snap.tenantId = 'demo';
 
-// Migration: stamp all existing drafts with the RESCOR tenant
+// Migration: stamp all existing drafts with the demo tenant
 MATCH (d:QuestionnaireDraft)
 WHERE d.tenantId IS NULL
-SET d.tenantId = '319d0c76-9d6c-4f59-b427-299fc75b1e62';
+SET d.tenantId = 'demo';

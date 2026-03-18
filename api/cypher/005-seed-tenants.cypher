@@ -24,3 +24,15 @@ MERGE (k12:Tenant {tenantId: 'k12.com'})
   ON MATCH SET
     k12.name       = 'Stride Inc (k12.com)',
     k12.domain     = 'k12.com';
+
+MERGE (demo:Tenant {tenantId: 'demo'})
+  ON CREATE SET
+    demo.name       = 'Demo Environment',
+    demo.domain     = 'rescor.local',
+    demo.createdAt  = datetime(),
+    demo.active     = true,
+    demo.protected  = true
+  ON MATCH SET
+    demo.name       = 'Demo Environment',
+    demo.domain     = 'rescor.local',
+    demo.protected  = true;

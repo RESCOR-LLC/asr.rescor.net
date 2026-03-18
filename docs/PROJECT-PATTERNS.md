@@ -31,7 +31,7 @@ As of 2026-03-12: **82+ nodes** (Policy nodes added by client overlay; snapshots
 
 | Label                  | Count | Key Properties                                               | Uniqueness Constraint        |
 | ---------------------- | ----: | ------------------------------------------------------------ | ---------------------------- |
-| `ScoringConfig`        |     1 | configId, dampingFactor=4, rawMax=134, ratingThresholds, ratingLabels, questionnaireVersion, questionnaireLabel | `configId`            |
+| `ScoringConfig`        |     1 | configId, tenantId, dampingFactor=4, rawMax=134, ratingThresholds, ratingLabels | `configId`            |
 | `WeightTier`           |     4 | name (Critical/High/Medium/Info), value (100/67/33/13)       | `name`                       |
 | `ScoreScale`           |     1 | Template choice-score arrays for 3/4/5-option questions      | —                            |
 | `ClassificationQuestion` |   1 | text, naAllowed                                              | —                            |
@@ -40,7 +40,16 @@ As of 2026-03-12: **82+ nodes** (Policy nodes added by client overlay; snapshots
 | `Question`             |    82 | domainIndex, questionIndex, text, weightTier, choices[], choiceScores[], naScore, applicability[] | composite `(domainIndex, questionIndex)` |
 | `Review`               |     — | reviewId (UUID), applicationName, assessor, status, classificationChoice, classificationFactor, sourceChoice, environmentChoice, deploymentArchetype, questionnaireVersion, rskRaw, rskNormalized, rating, notes, active, created/updated/createdBy/updatedBy | `reviewId` |
 | `Answer`               |     — | domainIndex, questionIndex, choiceText, rawScore, weightTier, measurement, notes, created/updated | composite index `(domainIndex, questionIndex)` |
-| `QuestionnaireSnapshot`|     — | version (12-char SHA), label, data (JSON blob), created      | `version`                    |
+| `Tenant`               |     2 | tenantId (`demo`, `k12.com`), name, domain, active           | `tenantId`                   |
+| `QuestionnaireSnapshot`|     — | version (12-char SHA), label, tenantId, data (JSON blob), created | `version`               |
+| `QuestionnaireDraft`   |     — | draftId (UUID), label, tenantId, status, data (JSON), createdBy, created, updated | `draftId`       |
+| `Questionnaire`        |     — | questionnaireId (UUID), name, description, active, createdBy | `questionnaireId`            |
+| `GateQuestion`         |     — | gateId, function, text, choices[], prefillRules (JSON), active, tenantId, sortOrder | `gateId`      |
+| `GateAnswer`           |     — | reviewId, gateId, choiceIndex, respondedBy, respondedAt, evidenceNotes | composite (reviewId, gateId) |
+| `ComplianceTagConfig`  |     — | tag, action (link\|dialog), baseUrl, tenantId                | —                            |
+| `RemediationItem`      |     — | remediationId, proposedAction, assignedFunction, assignedTo, status, responseType, mitigationPercent, targetDate | `remediationId` |
+| `ProposedChange`       |     — | changeId, domainIndex, questionIndex, choiceText, rawScore, status, proposedBy, proposedAt | `changeId` |
+| `AuditorComment`       |     — | commentId, text, author, created, resolved, resolvedBy, resolvedAt | `commentId`           |
 | `SourceQuestion`       |     1 | questionId='source', text, naAllowed                         | `questionId`                 |
 | `SourceChoice`         |     3 | source (INTERNAL/EXTERNAL/OTS), text, sortOrder              | `source`                     |
 | `EnvironmentQuestion`  |     1 | questionId='environment', text, naAllowed                    | `questionId`                 |
@@ -61,8 +70,17 @@ As of 2026-03-12: **82+ nodes** (Policy nodes added by client overlay; snapshots
 | `(Question)-[:HAS_WEIGHT]->(WeightTier)`              |    48 | Risk weight assignment            |
 | `(ClassificationQuestion)-[:HAS_CHOICE]->(ClassificationChoice)` | 5 | Classification factor options  |
 | `(Domain)-[:ALIGNS_TO]->(CsfSubcategory)`             |    12 | NIST CSF 2.0 framework mapping    |
-| `(Review)-[:CONTAINS]->(Answer)`                      |     2 | Answers owned by review           |
-| `(Answer)-[:ANSWERS]->(Question)`                     |     2 | Answer → question link            |
+| `(Review)-[:CONTAINS]->(Answer)`                      |     — | Answers owned by review           |
+| `(Answer)-[:ANSWERS]->(Question)`                     |     — | Answer → question link            |
+| `(Review)-[:SCOPED_TO]->(Tenant)`                     |     — | Tenant isolation for reviews      |
+| `(Review)-[:USES_QUESTIONNAIRE]->(Questionnaire)`     |     — | Which questionnaire the review was scored against |
+| `(QuestionnaireDraft)-[:BELONGS_TO]->(Questionnaire)` |     — | Draft → template link             |
+| `(QuestionnaireSnapshot)-[:VERSION_OF]->(Questionnaire)` |  — | Snapshot → template link          |
+| `(Questionnaire)-[:CURRENT_VERSION]->(QuestionnaireSnapshot)` | — | Active version pointer         |
+| `(GateQuestion)-[:APPLIES_TO]->(Questionnaire)`       |     — | Gate scoped to questionnaire      |
+| `(Answer)-[:HAS_REMEDIATION]->(RemediationItem)`      |     — | POAM items per high-RU answer     |
+| `(Review)-[:HAS_PROPOSED_CHANGE]->(ProposedChange)`   |     — | User-proposed answer changes      |
+| `(Review)-[:HAS_AUDITOR_COMMENT]->(AuditorComment)`   |     — | Auditor commentary                |
 
 ### Client Overlay Relationships
 
@@ -88,6 +106,11 @@ Beyond constraint-backed indexes, these explicit indexes exist:
 | `question_domain_index`         | Question     | domainIndex                  | Domain query performance   |
 | `domain_name_index`             | Domain       | name                         | Name lookups               |
 | `answer_domain_question_index`  | Answer       | domainIndex, questionIndex   | Answer upsert performance  |
+| `scoring_config_tenant_idx`     | ScoringConfig | tenantId                    | Per-tenant config lookup   |
+| `snapshot_tenant_idx`           | QuestionnaireSnapshot | tenantId            | Per-tenant version history |
+| `draft_tenant_idx`              | QuestionnaireDraft | tenantId               | Per-tenant draft listing   |
+| `gate_tenant_idx`               | GateQuestion | tenantId                     | Per-tenant gate listing    |
+| `compliance_tag_tenant_idx`     | ComplianceTagConfig | tenantId              | Per-tenant chip actions    |
 
 ---
 
@@ -146,7 +169,7 @@ When YAML configuration changes, existing reviews must not be corrupted.
 npm run dev                       # from workspace root
 
 # Seed Neo4j database
-npm run cypher:setup -w api       # runs all 3 cypher files
+npm run cypher:setup -w api       # runs all cypher files (001–010)
 
 # Seed with client overlay (e.g., Stride)
 npm run cypher:setup -w api -- --overlay ../asr.k12.com/cypher
@@ -190,11 +213,21 @@ rescor env validate asr.rescor.net --template .env.example
 
 ## Cypher DDL Files
 
-| File                          | Purpose                               | Notes                          |
-| ----------------------------- | ------------------------------------- | ------------------------------ |
-| `api/cypher/001-constraints`  | 9 uniqueness + 5 indexes              | Existence constraints commented out (Enterprise-only) |
-| `api/cypher/002-seed-questionnaire` | ScoringConfig, 4 WeightTiers, ScoreScale, ClassificationQuestion + 5 choices, 7 Domains, 48 Questions | Uses MERGE for idempotency |
-| `api/cypher/003-seed-policies-csf`  | 12 CsfSubcategories, ALIGNS_TO edges               | Policies added by client overlay |
+New cypher files must also be added to the `SCRIPTS` array in `api/src/setupDatabase.mjs`.
+
+| File                                   | Purpose                                                    | Notes                                   |
+| -------------------------------------- | ---------------------------------------------------------- | --------------------------------------- |
+| `api/cypher/001-constraints`           | 9 uniqueness constraints + 5 indexes                       | Existence constraints commented out (Enterprise-only) |
+| `api/cypher/002-seed-questionnaire`    | ScoringConfig, 4 WeightTiers, ScoreScale, ClassificationQuestion + 5 choices, 7 Domains, 48 Questions | Uses MERGE for idempotency |
+| `api/cypher/003-seed-policies-csf`     | 12 CsfSubcategories, ALIGNS_TO edges                       | Policies added by client overlay        |
+| `api/cypher/004-auth-constraints`      | AuthEvent uniqueness constraint + timestamp/action indexes | —                                       |
+| `api/cypher/004-seed-gates`            | GateQuestion nodes + APPLIES_TO questionnaire links        | Numbering collision — both 004s run     |
+| `api/cypher/005-seed-tenants`          | Tenant nodes: `demo` + `k12.com`                           | MERGE — idempotent                      |
+| `api/cypher/006-seed-superusers`       | Superadmin user node(s)                                    | —                                       |
+| `api/cypher/007-auth-events`           | AuthEvent constraint + indexes                             | —                                       |
+| `api/cypher/008-questionnaire-templates` | Questionnaire grouping nodes; VERSION_OF / CURRENT_VERSION / BELONGS_TO migration | Idempotent |
+| `api/cypher/009-tenant-config`         | tenantId indexes on ScoringConfig, QuestionnaireSnapshot, QuestionnaireDraft; stamps existing nodes with `tenantId: 'demo'` | Migration |
+| `api/cypher/010-tenant-gates`          | tenantId indexes on GateQuestion, ComplianceTagConfig; stamps existing nodes with `tenantId: 'demo'` | Migration |
 
 ---
 
