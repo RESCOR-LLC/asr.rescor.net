@@ -1,0 +1,33 @@
+// ════════════════════════════════════════════════════════════════════
+// Rate Limiters — brute-force and DoS protection
+// ════════════════════════════════════════════════════════════════════
+// authLimiter  — tight ceiling for authentication endpoints
+// apiLimiter   — per-tenant ceiling for all other API endpoints
+// ════════════════════════════════════════════════════════════════════
+
+import { rateLimit } from 'express-rate-limit';
+
+// ── Auth endpoints — 20 requests per 15 minutes per IP ────────────
+// Applied to /api/auth/* before the authenticate middleware so that
+// brute-force token attempts are throttled at the network edge.
+
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication requests, please try again later.' },
+});
+
+// ── General API — 300 requests per minute per tenant (or IP) ─────
+// Keyed by tenantId when the user is authenticated; falls back to
+// IP for unauthenticated requests (health check, etc.).
+
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  keyGenerator: (request) => request.user?.tenantId || request.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded, please slow down.' },
+});

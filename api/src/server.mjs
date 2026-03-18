@@ -17,6 +17,7 @@ import { createGateRouter } from './routes/gates.mjs';
 import { createExportRouter } from './routes/exportDocuments.mjs';
 import { createAuthenticationMiddleware } from './middleware/authenticate.mjs';
 import { authorize } from './middleware/authorize.mjs';
+import { authLimiter, apiLimiter } from './middleware/rateLimiter.mjs';
 import { UserStore } from './persistence/UserStore.mjs';
 import { AuthEventStore } from './persistence/AuthEventStore.mjs';
 
@@ -30,6 +31,8 @@ async function bootstrap() {
   const application = express();
   application.use(cors());
   application.use(express.json());
+  application.use('/api/auth', authLimiter);
+  application.use('/api', apiLimiter);
 
   // Configuration-First: Infisical → Neo4j
   const configuration = await createConfiguration();
