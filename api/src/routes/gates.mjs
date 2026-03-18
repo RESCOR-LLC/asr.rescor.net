@@ -26,17 +26,21 @@ export function createGateRouter(database) {
 
     try {
       const { questionnaireId } = request.query;
+      const tenantId = request.user?.tenantId || null;
+
       const cypher = questionnaireId
         ? `MATCH (gq:GateQuestion)-[:APPLIES_TO]->(q:Questionnaire {questionnaireId: $questionnaireId})
            WHERE gq.active = true
+             AND (gq.tenantId = $tenantId OR gq.tenantId IS NULL OR $tenantId IS NULL)
            RETURN gq
            ORDER BY gq.sortOrder`
         : `MATCH (gq:GateQuestion)
            WHERE gq.active = true
+             AND (gq.tenantId = $tenantId OR gq.tenantId IS NULL OR $tenantId IS NULL)
            RETURN gq
            ORDER BY gq.sortOrder`;
 
-      const result = await database.query(cypher, { questionnaireId: questionnaireId || '' });
+      const result = await database.query(cypher, { questionnaireId: questionnaireId || '', tenantId });
 
       body = result.map((record) => {
         const gate = record.gq || record;
