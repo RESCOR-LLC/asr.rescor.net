@@ -20,6 +20,7 @@ import { authorize } from './middleware/authorize.mjs';
 import { authLimiter, apiLimiter } from './middleware/rateLimiter.mjs';
 import { UserStore } from './persistence/UserStore.mjs';
 import { AuthEventStore } from './persistence/AuthEventStore.mjs';
+import { AuditEventStore } from './persistence/AuditEventStore.mjs';
 
 const PORT = 3100;
 
@@ -29,16 +30,22 @@ const PORT = 3100;
 
 async function bootstrap() {
   const application = express();
-  application.use(cors());
   application.use(express.json());
   application.use('/api/auth', authLimiter);
   application.use('/api', apiLimiter);
 
   // Configuration-First: Infisical → Neo4j
   const configuration = await createConfiguration();
+
+  // CORS — origin list from Infisical in production; open in dev (absent = allow all)
+  const rawOrigins = await configuration.getConfig('server', 'corsAllowedOrigins') || null;
+  const corsOptions = rawOrigins ? { origin: rawOrigins.split(',').map((s) => s.trim()) } : {};
+  application.use(cors(corsOptions));
+
   const database = await createDatabase(configuration);
   const userStore = new UserStore(database);
   const authEventStore = new AuthEventStore(database);
+  const auditEventStore = new AuditEventStore(database);
 
   // Auth config from Infisical (optional — absent in dev = auth-optional)
   const tenantId = await configuration.getConfig('entra', 'tenantId') || null;
@@ -72,13 +79,13 @@ async function bootstrap() {
 
   // Mount routes — config is public (read), reviews + answers gated
   application.use('/api/config', createConfigRouter(database));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database, auditEventStore));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database, auditEventStore));
   application.use('/api/reviews', authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database));
   application.use('/api/reviews', authorize('admin', 'auditor'), createAuditorCommentsRouter(database));
   application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database));
-  application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore, authEventStore));
-  application.use('/api/admin/questionnaire', authorize('admin'), createQuestionnaireAdminRouter(database));
+  application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore, authEventStore, auditEventStore));
+  application.use('/api/admin/questionnaire', authorize('admin'), createQuestionnaireAdminRouter(database, auditEventStore));
   application.use('/api', createGateRouter(database));
   application.use('/api', createExportRouter(database));
 

@@ -14,13 +14,14 @@ export class AuthEventStore {
    * Log an authentication event.  Fire-and-forget — callers should
    * not await this in the request path.
    */
-  async logEvent({ sub, action, ipAddress, userAgent, host, outcome, reason }) {
+  async logEvent({ sub, tenantId = null, action, ipAddress, userAgent, host, outcome, reason }) {
     const eventId = randomUUID();
     const timestamp = new Date().toISOString();
 
     await this.database.query(
       `CREATE (event:AuthEvent {
          eventId:   $eventId,
+         tenantId:  $tenantId,
          action:    $action,
          timestamp: $timestamp,
          ipAddress: $ipAddress,
@@ -34,20 +35,24 @@ export class AuthEventStore {
        FOREACH (_ IN CASE WHEN user IS NOT NULL THEN [1] ELSE [] END |
          MERGE (user)-[:HAS_AUTH_EVENT]->(event)
        )`,
-      { eventId, sub, action, timestamp, ipAddress, userAgent, host, outcome, reason: reason || null }
+      { eventId, sub, tenantId, action, timestamp, ipAddress, userAgent, host, outcome, reason: reason || null }
     );
   }
 
   /**
    * List recent auth events across all users.
    */
-  async listRecentEvents({ limit = 50, offset = 0, sub } = {}) {
-    const subFilter = sub
+  async listRecentEvents({ limit = 50, offset = 0, sub, tenantId } = {}) {
+    const subMatch = sub
       ? 'MATCH (user:User {sub: $sub})-[:HAS_AUTH_EVENT]->(event:AuthEvent)'
-      : 'MATCH (event:AuthEvent) OPTIONAL MATCH (user:User)-[:HAS_AUTH_EVENT]->(event)';
+      : 'MATCH (event:AuthEvent)';
+    const userOptional = sub ? '' : 'OPTIONAL MATCH (user:User)-[:HAS_AUTH_EVENT]->(event)';
+    const tenantFilter = tenantId ? 'WHERE event.tenantId = $tenantId' : '';
 
     const rows = await this.database.query(
-      `${subFilter}
+      `${subMatch}
+       ${tenantFilter}
+       ${userOptional}
        RETURN event.eventId   AS eventId,
               event.action    AS action,
               event.timestamp AS timestamp,
@@ -62,7 +67,7 @@ export class AuthEventStore {
        ORDER BY event.timestamp DESC
        SKIP $offset
        LIMIT $limit`,
-      { limit: neo4j.int(limit), offset: neo4j.int(offset), sub: sub || null }
+      { limit: neo4j.int(limit), offset: neo4j.int(offset), sub: sub || null, tenantId: tenantId || null }
     );
 
     return rows;
@@ -71,15 +76,17 @@ export class AuthEventStore {
   /**
    * Count total auth events (optionally filtered by user).
    */
-  async countEvents({ sub } = {}) {
-    const subFilter = sub
+  async countEvents({ sub, tenantId } = {}) {
+    const subMatch = sub
       ? 'MATCH (user:User {sub: $sub})-[:HAS_AUTH_EVENT]->(event:AuthEvent)'
       : 'MATCH (event:AuthEvent)';
+    const tenantFilter = tenantId ? 'WHERE event.tenantId = $tenantId' : '';
 
     const rows = await this.database.query(
-      `${subFilter}
+      `${subMatch}
+       ${tenantFilter}
        RETURN count(event) AS total`,
-      { sub: sub || null }
+      { sub: sub || null, tenantId: tenantId || null }
     );
 
     const result = rows[0]?.total ?? 0;
@@ -90,12 +97,14 @@ export class AuthEventStore {
    * Count distinct users with at least one successful login since a
    * given datetime.
    */
-  async countActiveUsers(sinceIso) {
+  async countActiveUsers(sinceIso, tenantId = null) {
+    const tenantFilter = tenantId ? 'AND event.tenantId = $tenantId' : '';
+
     const rows = await this.database.query(
       `MATCH (user:User)-[:HAS_AUTH_EVENT]->(event:AuthEvent)
-       WHERE event.outcome = 'success' AND event.timestamp >= $since
+       WHERE event.outcome = 'success' AND event.timestamp >= $since ${tenantFilter}
        RETURN count(DISTINCT user) AS activeCount`,
-      { since: sinceIso }
+      { since: sinceIso, tenantId: tenantId || null }
     );
 
     const result = rows[0]?.activeCount ?? 0;
@@ -110,9 +119,12 @@ export class AuthEventStore {
    * Return session summaries (paginated).  A "session" is a span of
    * consecutive events from the same user with < 30 min gaps.
    */
-  async listSessions({ limit = 20, offset = 0 } = {}) {
+  async listSessions({ limit = 20, offset = 0, tenantId = null } = {}) {
+    const tenantFilter = tenantId ? 'WHERE event.tenantId = $tenantId' : '';
+
     const rows = await this.database.query(
       `MATCH (event:AuthEvent)
+       ${tenantFilter}
        OPTIONAL MATCH (user:User)-[:HAS_AUTH_EVENT]->(event)
        RETURN event.eventId   AS eventId,
               event.action    AS action,
@@ -125,7 +137,7 @@ export class AuthEventStore {
               user.email      AS email,
               user.username   AS username
        ORDER BY event.timestamp DESC`,
-      {}
+      { tenantId: tenantId || null }
     );
 
     const sessions = AuthEventStore.#groupIntoSessions(rows);

@@ -15,7 +15,7 @@ import { authorize, requireOwnershipOrAdmin } from '../middleware/authorize.mjs'
 // createAnswersRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createAnswersRouter(database) {
+export function createAnswersRouter(database, auditEventStore = null) {
   const router = Router();
 
   // ── Save answers (bulk upsert) ─────────────────────────────────
@@ -40,6 +40,19 @@ export function createAnswersRouter(database) {
       await updateReviewScore(
         database, reviewId, classificationFactor, overall, assessor, now
       );
+
+      if (auditEventStore) {
+        auditEventStore.logEvent({
+          tenantId:     request.user?.tenantId || null,
+          sub:          request.user?.sub,
+          action:       'answer.update',
+          resourceType: 'Review',
+          resourceId:   reviewId,
+          ipAddress:    request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+          userAgent:    request.headers['user-agent'] || null,
+          meta:         { answersProcessed: answers.length },
+        });
+      }
 
       body = {
         reviewId,

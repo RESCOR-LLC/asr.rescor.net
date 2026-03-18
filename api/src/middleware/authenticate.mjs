@@ -53,7 +53,7 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
     email: 'dev@rescor.local',
     displayName: 'Dev User',
     roles: ['admin'],
-    tenantId: tenantId || 'dev',
+    tenantId: 'demo',
     iss: 'asr-dev',
     aud: 'asr-api',
   });
@@ -62,7 +62,8 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
   function logAuthEvent(sub, action, outcome, request, reason) {
     if (!authEventStore) return;
     const metadata = extractRequestMetadata(request);
-    authEventStore.logEvent({ sub, action, ...metadata, outcome, reason }).catch((error) => {
+    const tenantId = request.user?.tenantId || null;
+    authEventStore.logEvent({ sub, tenantId, action, ...metadata, outcome, reason }).catch((error) => {
       console.warn('[asr] Failed to log auth event:', error.message);
     });
   }

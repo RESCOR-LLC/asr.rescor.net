@@ -8,7 +8,7 @@ import { Router } from 'express';
 // createAdminRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createAdminRouter(database, userStore, authEventStore) {
+export function createAdminRouter(database, userStore, authEventStore, auditEventStore = null) {
   const router = Router();
 
   // ── List all users ─────────────────────────────────────────────
@@ -68,6 +68,17 @@ export function createAdminRouter(database, userStore, authEventStore) {
         if (!body) {
           statusCode = 404;
           body = { error: 'User not found' };
+        } else if (auditEventStore) {
+          auditEventStore.logEvent({
+            tenantId:     request.user?.tenantId || null,
+            sub:          request.user?.sub,
+            action:       'role.change',
+            resourceType: 'User',
+            resourceId:   request.params.sub,
+            ipAddress:    request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+            userAgent:    request.headers['user-agent'] || null,
+            meta:         { roles: requestedRoles },
+          });
         }
       }
     } catch (error) {
@@ -126,10 +137,11 @@ export function createAdminRouter(database, userStore, authEventStore) {
       const limit = Math.min(Math.max(parseInt(request.query.limit, 10) || 50, 1), 200);
       const offset = Math.max(parseInt(request.query.offset, 10) || 0, 0);
       const sub = request.query.sub || undefined;
+      const tenantId = request.user?.tenantId || null;
 
       const [events, total] = await Promise.all([
-        authEventStore.listRecentEvents({ limit, offset, sub }),
-        authEventStore.countEvents({ sub }),
+        authEventStore.listRecentEvents({ limit, offset, sub, tenantId }),
+        authEventStore.countEvents({ sub, tenantId }),
       ]);
 
       body = { events, total };
@@ -142,13 +154,14 @@ export function createAdminRouter(database, userStore, authEventStore) {
   });
 
   // ── Active user count (last 30 days) ───────────────────────────
-  router.get('/auth-events/active-count', async (_request, response) => {
+  router.get('/auth-events/active-count', async (request, response) => {
     let statusCode = 200;
     let body = null;
 
     try {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const activeCount = await authEventStore.countActiveUsers(thirtyDaysAgo);
+      const tenantId = request.user?.tenantId || null;
+      const activeCount = await authEventStore.countActiveUsers(thirtyDaysAgo, tenantId);
       body = { activeCount };
     } catch (error) {
       statusCode = 500;
@@ -166,8 +179,9 @@ export function createAdminRouter(database, userStore, authEventStore) {
     try {
       const limit = Math.min(Math.max(parseInt(request.query.limit, 10) || 20, 1), 100);
       const offset = Math.max(parseInt(request.query.offset, 10) || 0, 0);
+      const tenantId = request.user?.tenantId || null;
 
-      body = await authEventStore.listSessions({ limit, offset });
+      body = await authEventStore.listSessions({ limit, offset, tenantId });
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };

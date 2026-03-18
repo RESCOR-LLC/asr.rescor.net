@@ -30,7 +30,7 @@ function sendResult(response, statusCode, body) {
 // createReviewsRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createReviewsRouter(database) {
+export function createReviewsRouter(database, auditEventStore = null) {
   const router = Router();
 
   // ── List reviews ────────────────────────────────────────────────
@@ -214,6 +214,19 @@ export function createReviewsRouter(database) {
         }
       );
       body = result[0].review || result[0];
+
+      if (auditEventStore) {
+        auditEventStore.logEvent({
+          tenantId:     tenantId,
+          sub:          request.user?.sub,
+          action:       'review.create',
+          resourceType: 'Review',
+          resourceId:   reviewId,
+          ipAddress:    request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+          userAgent:    request.headers['user-agent'] || null,
+          meta:         { applicationName: request.body.applicationName },
+        });
+      }
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };
@@ -354,6 +367,18 @@ export function createReviewsRouter(database) {
           assessor: getAssessor(request),
         }
       );
+
+      if (auditEventStore) {
+        auditEventStore.logEvent({
+          tenantId:     request.user?.tenantId || null,
+          sub:          request.user?.sub,
+          action:       'review.delete',
+          resourceType: 'Review',
+          resourceId:   request.params.reviewId,
+          ipAddress:    request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+          userAgent:    request.headers['user-agent'] || null,
+        });
+      }
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };

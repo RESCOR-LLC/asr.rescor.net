@@ -490,7 +490,7 @@ function reverseRiskLevel(score, choiceCount) {
 // createQuestionnaireAdminRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createQuestionnaireAdminRouter(database) {
+export function createQuestionnaireAdminRouter(database, auditEventStore = null) {
   const router = Router();
 
   // ── GET /drafts — list all drafts ─────────────────────────────
@@ -782,6 +782,19 @@ export function createQuestionnaireAdminRouter(database) {
                 questionnaireId,
                 statementsExecuted: publishResult.statementCount,
               };
+
+              if (auditEventStore) {
+                auditEventStore.logEvent({
+                  tenantId,
+                  sub:          request.user?.sub,
+                  action:       'questionnaire.publish',
+                  resourceType: 'QuestionnaireDraft',
+                  resourceId:   draftId,
+                  ipAddress:    request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+                  userAgent:    request.headers['user-agent'] || null,
+                  meta:         { questionnaireVersion: publishResult.questionnaireVersion, questionnaireId },
+                });
+              }
             }
           }
         }
