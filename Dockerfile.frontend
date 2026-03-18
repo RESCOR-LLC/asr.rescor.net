@@ -4,13 +4,14 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 COPY frontend/src ./src/
-COPY frontend/public ./public/ 2>/dev/null || true
+COPY frontend/public ./public/
 COPY frontend/index.html ./
 COPY frontend/vite.config.ts ./
 COPY frontend/tsconfig*.json ./
+COPY frontend/.env.production ./.env.production
 
 RUN npm run build
 
