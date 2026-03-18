@@ -88,12 +88,19 @@ export function createReviewsRouter(database) {
     let body = null;
 
     try {
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const tenantId = request.user?.tenantId || null;
+      const { reviewId } = request.params;
+
       const result = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})
+         WHERE $isAdmin OR EXISTS {
+           MATCH (review)-[:SCOPED_TO]->(:Tenant {tenantId: $tenantId})
+         }
          OPTIONAL MATCH (review)-[:CONTAINS]->(existingAnswer:Answer)
          OPTIONAL MATCH (existingAnswer)-[:ANSWERS]->(question:Question)
          RETURN review, collect({answer: existingAnswer, question: question}) AS answers`,
-        { reviewId: request.params.reviewId }
+        { reviewId, isAdmin, tenantId }
       );
 
       if (result.length === 0) {

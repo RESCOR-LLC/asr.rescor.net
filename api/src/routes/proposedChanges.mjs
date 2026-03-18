@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authorize } from '../middleware/authorize.mjs';
+import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 
 // ────────────────────────────────────────────────────────────────────
 // createProposedChangesRouter
@@ -27,6 +28,16 @@ export function createProposedChangesRouter(database) {
     const proposedBy = request.user?.preferred_username || 'system';
 
     try {
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const { domainIndex, questionIndex, choiceText, rawScore, notes } = request.body;
 
       const result = await database.query(
@@ -76,6 +87,16 @@ export function createProposedChangesRouter(database) {
     let body = [];
 
     try {
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const statusFilter = request.query.status || null;
       let cypher = `MATCH (review:Review {reviewId: $reviewId})-[:HAS_PROPOSED_CHANGE]->(change:ProposedChange)
                     OPTIONAL MATCH (change)-[:FOR_QUESTION]->(question:Question)`;

@@ -57,10 +57,12 @@ export function requireOwnershipOrAdmin(database) {
     }
 
     try {
+      const tenantId = request.user?.tenantId || null;
+
       const result = await database.query(
-        `MATCH (review:Review {reviewId: $reviewId})
+        `MATCH (review:Review {reviewId: $reviewId})-[:SCOPED_TO]->(:Tenant {tenantId: $tenantId})
          RETURN review.createdBy AS createdBy`,
-        { reviewId }
+        { reviewId, tenantId }
       );
 
       if (result.length === 0) {

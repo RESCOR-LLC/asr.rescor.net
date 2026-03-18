@@ -10,6 +10,7 @@ import {
   ratingFromNormalized,
 } from '../scoring.mjs';
 import { authorize, requireOwnershipOrAdmin } from '../middleware/authorize.mjs';
+import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 
 // ────────────────────────────────────────────────────────────────────
 // createGateRouter
@@ -65,6 +66,15 @@ export function createGateRouter(database) {
 
       try {
         const { reviewId } = request.params;
+        const isAdmin = (request.user?.roles || []).includes('admin');
+        const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+        if (!ownedReview) {
+          statusCode = 404;
+          body = { error: 'Review not found' };
+          response.status(statusCode).json(body);
+          return;
+        }
 
         const result = await database.query(
           `MATCH (review:Review {reviewId: $reviewId})

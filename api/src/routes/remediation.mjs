@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { authorize } from '../middleware/authorize.mjs';
+import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 
 // ────────────────────────────────────────────────────────────────────
 // Default function classification per question (domainIndex:questionIndex)
@@ -88,6 +89,15 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
 
       const rows = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})-[:CONTAINS]->(answer:Answer)
@@ -188,6 +198,16 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const assessor = request.user?.preferred_username || 'system';
       const now = new Date().toISOString();
 
@@ -259,6 +279,16 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const { domainIndex, questionIndex, proposedAction, assignedFunction, responseType, mitigationPercent } = request.body;
       const assessor = request.user?.preferred_username || 'system';
       const now = new Date().toISOString();
@@ -346,6 +376,16 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId, remediationId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const { proposedAction, assignedFunction, assignedTo, notes, responseType, mitigationPercent } = request.body;
       const assessor = request.user?.preferred_username || 'system';
       const now = new Date().toISOString();
@@ -403,6 +443,16 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId, remediationId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const { status } = request.body;
       const assessor = request.user?.preferred_username || 'system';
       const now = new Date().toISOString();
@@ -457,6 +507,15 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId, remediationId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
 
       const result = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})-[:CONTAINS]->(answer:Answer)-[:HAS_REMEDIATION]->(ri:RemediationItem {remediationId: $remediationId})
@@ -487,6 +546,16 @@ export function createRemediationRouter(database) {
 
     try {
       const { reviewId, remediationId } = request.params;
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const acceptedBy = request.user?.sub || request.user?.preferred_username || 'system';
       const now = new Date().toISOString();
 

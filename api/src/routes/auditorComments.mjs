@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authorize } from '../middleware/authorize.mjs';
+import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 
 // ────────────────────────────────────────────────────────────────────
 // createAuditorCommentsRouter
@@ -26,6 +27,16 @@ export function createAuditorCommentsRouter(database) {
     const author = request.user?.preferred_username || 'system';
 
     try {
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const { text, domainIndex, questionIndex } = request.body;
       const hasQuestion = domainIndex != null && questionIndex != null;
 
@@ -87,6 +98,16 @@ export function createAuditorCommentsRouter(database) {
     let body = [];
 
     try {
+      const isAdmin = (request.user?.roles || []).includes('admin');
+      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin);
+
+      if (!ownedReview) {
+        statusCode = 404;
+        body = { error: 'Review not found' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
       const result = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})-[:HAS_AUDITOR_COMMENT]->(comment:AuditorComment)
          OPTIONAL MATCH (comment)-[:ON_QUESTION]->(question:Question)
