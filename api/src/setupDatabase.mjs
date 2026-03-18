@@ -18,6 +18,8 @@ const SCRIPTS = [
   '006-seed-superusers.cypher',
   '007-auth-events.cypher',
   '008-questionnaire-templates.cypher',
+  '009-tenant-config.cypher',
+  '010-tenant-gates.cypher',
 ];
 
 // ────────────────────────────────────────────────────────────────────
