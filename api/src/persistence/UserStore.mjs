@@ -125,14 +125,20 @@ export class UserStore {
   }
 
   /**
-   * List all users.
+   * List users, optionally scoped to a tenant.
+   * Pass tenantId to restrict to users BELONGS_TO that tenant.
+   * Pass null (superadmin) to return all users.
    *
+   * @param {string|null} tenantId
    * @returns {Promise<object[]>}
    */
-  async listUsers() {
+  async listUsers(tenantId = null) {
+    const matchClause = tenantId
+      ? `MATCH (u:User)-[:BELONGS_TO]->(t:Tenant {tenantId: $tenantId})`
+      : `MATCH (u:User) OPTIONAL MATCH (u)-[:BELONGS_TO]->(t:Tenant)`;
+
     const rows = await this.database.query(
-      `MATCH (u:User)
-       OPTIONAL MATCH (u)-[:BELONGS_TO]->(t:Tenant)
+      `${matchClause}
        RETURN u.sub         AS sub,
               u.username    AS username,
               u.email       AS email,
@@ -141,7 +147,8 @@ export class UserStore {
               u.firstSeen   AS firstSeen,
               u.lastSeen    AS lastSeen,
               collect(t.tenantId) AS tenants
-       ORDER BY u.username`
+       ORDER BY u.username`,
+      { tenantId: tenantId || null }
     );
 
     for (const row of rows) {

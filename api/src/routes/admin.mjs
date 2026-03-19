@@ -11,13 +11,14 @@ import { Router } from 'express';
 export function createAdminRouter(database, userStore, authEventStore, auditEventStore = null, tenantStore = null) {
   const router = Router();
 
-  // ── List all users ─────────────────────────────────────────────
-  router.get('/users', async (_request, response) => {
+  // ── List users (tenant-scoped for non-superadmin) ─────────────
+  router.get('/users', async (request, response) => {
     let statusCode = 200;
     let body = [];
 
     try {
-      body = await userStore.listUsers();
+      const tenantId = request.user?.tenantId || null;
+      body = await userStore.listUsers(tenantId);
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };
