@@ -77,7 +77,7 @@ function mitigationAggregate(mitigations, dampingFactor = 4) {
 // createRemediationRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createRemediationRouter(database) {
+export function createRemediationRouter(database, auditEventStore = null) {
   const router = Router();
 
   // ── GET /api/reviews/:reviewId/remediation ─────────────────────
@@ -90,7 +90,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -199,7 +204,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -280,7 +290,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -377,7 +392,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId, remediationId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -444,7 +464,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId, remediationId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -508,7 +533,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId, remediationId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -547,7 +577,12 @@ export function createRemediationRouter(database) {
     try {
       const { reviewId, remediationId } = request.params;
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;

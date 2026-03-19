@@ -86,12 +86,12 @@ async function bootstrap() {
   application.use('/api/config', createConfigRouter(database));
   application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database, auditEventStore));
   application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database, stormService, auditEventStore));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database));
-  application.use('/api/reviews', authorize('admin', 'auditor'), createAuditorCommentsRouter(database));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database, auditEventStore));
+  application.use('/api/reviews', authorize('admin', 'auditor'), createAuditorCommentsRouter(database, auditEventStore));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database, auditEventStore));
   application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore, authEventStore, auditEventStore, tenantStore));
   application.use('/api/admin/questionnaire', authorize('admin'), createQuestionnaireAdminRouter(database, auditEventStore));
-  application.use('/api', createGateRouter(database, stormService));
+  application.use('/api', createGateRouter(database, stormService, auditEventStore));
   application.use('/api', createExportRouter(database, stormService));
 
   application.listen(PORT, () => {

@@ -15,7 +15,7 @@ import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 // createAuditorCommentsRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createAuditorCommentsRouter(database) {
+export function createAuditorCommentsRouter(database, auditEventStore = null) {
   const router = Router();
 
   // ── Create auditor comment ─────────────────────────────────────
@@ -28,7 +28,12 @@ export function createAuditorCommentsRouter(database) {
 
     try {
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;
@@ -99,7 +104,12 @@ export function createAuditorCommentsRouter(database) {
 
     try {
       const isAdmin = (request.user?.roles || []).includes('admin');
-      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin);
+      const ownedReview = await verifyReviewTenant(database, request.params.reviewId, request.user?.tenantId, isAdmin, {
+        auditEventStore,
+        sub:       request.user?.sub || null,
+        ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+        userAgent: request.headers['user-agent'] || null,
+      });
 
       if (!ownedReview) {
         statusCode = 404;

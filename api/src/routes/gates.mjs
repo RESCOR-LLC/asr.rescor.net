@@ -14,7 +14,7 @@ import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 // createGateRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createGateRouter(database, stormService) {
+export function createGateRouter(database, stormService, auditEventStore = null) {
   const router = Router();
 
   // ── GET /gates — list active gate questions (config-level) ────
@@ -69,7 +69,12 @@ export function createGateRouter(database, stormService) {
       try {
         const { reviewId } = request.params;
         const isAdmin = (request.user?.roles || []).includes('admin');
-        const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin);
+        const ownedReview = await verifyReviewTenant(database, reviewId, request.user?.tenantId, isAdmin, {
+          auditEventStore,
+          sub:       request.user?.sub || null,
+          ipAddress: request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+          userAgent: request.headers['user-agent'] || null,
+        });
 
         if (!ownedReview) {
           statusCode = 404;
