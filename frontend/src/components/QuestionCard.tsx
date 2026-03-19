@@ -123,7 +123,9 @@ export default function QuestionCard({
           >
             {questionNumber}
           </Typography>
-          <Typography variant="body2" sx={{ flex: 1 }}>
+          <Typography variant="body2" sx={{ flex: 1, userSelect: 'text', cursor: 'text' }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             {question.text}
           </Typography>
         </Box>

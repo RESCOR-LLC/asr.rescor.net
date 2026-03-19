@@ -68,8 +68,19 @@ export default function GateAttestationSection({
     try {
       const data = await fetchGateAnswers(reviewId);
       setGates(data);
+      return data;
+    } catch (err) {
+      setError((err as Error).message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [reviewId]);
 
-      // Seed local state from server answers
+  // Seed local state from server on initial load only
+  useEffect(() => {
+    loadGates().then((data) => {
+      if (!data) return;
       const choices: Record<string, number | null> = {};
       const notes: Record<string, string> = {};
       for (const gate of data) {
@@ -78,15 +89,7 @@ export default function GateAttestationSection({
       }
       setLocalChoices(choices);
       setLocalNotes(notes);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [reviewId]);
-
-  useEffect(() => {
-    loadGates();
+    });
   }, [loadGates]);
 
   async function handleSaveGate(gateId: string): Promise<void> {
@@ -96,7 +99,7 @@ export default function GateAttestationSection({
     setSavingGate(gateId);
     try {
       await answerGate(reviewId, gateId, choiceIndex, localNotes[gateId] || '');
-      await loadGates();
+      await loadGates(); // refreshes server state without touching localChoices
       onPreFill();
     } catch (err) {
       setError((err as Error).message);
@@ -111,7 +114,7 @@ export default function GateAttestationSection({
       await clearGate(reviewId, gateId);
       setLocalChoices((previous) => ({ ...previous, [gateId]: null }));
       setLocalNotes((previous) => ({ ...previous, [gateId]: '' }));
-      await loadGates();
+      await loadGates(); // refreshes server state without touching localChoices
       onPreFill();
     } catch (err) {
       setError((err as Error).message);
