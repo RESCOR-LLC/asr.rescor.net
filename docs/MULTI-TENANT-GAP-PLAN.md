@@ -555,7 +555,7 @@ NEO4J_dbms_security_procedures_unrestricted: "apoc.ttl.*"
 
 | Item | When |
 |------|------|
-| Encryption at rest | dm-crypt/LUKS on production Neo4j volume — operational infra task |
+| Encryption at rest | dm-crypt/LUKS on production Neo4j volume — operational infra task. **Single-tenant fleet**: EAR is load-bearing — each client VM gets its own LUKS key, isolating volumes at block-device level even if another instance is compromised. **Multi-tenant instance**: EAR is a compliance checkbox with negligible runtime cost (AES-NI); real tenant isolation is enforced at the application layer. FERPA/HIPAA/GLBA require a documented risk analysis justifying use or omission, not EAR itself — document accordingly. |
 | Full tenant offboarding | Tenant-wide XLSX/DOCX export + hard purge — after Step 8 soft-delete |
 | Cross-tenant access monitoring | Log `verifyReviewTenant()` null hits as `'review.cross_tenant_attempt'` audit events; alert on threshold |
 | Scope `GET /admin/users` by tenant | Non-superadmin admins see only their own tenant's user list |
