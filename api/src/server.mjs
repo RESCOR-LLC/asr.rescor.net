@@ -34,6 +34,7 @@ const PORT = 3100;
 
 async function bootstrap() {
   const application = express();
+  application.set('trust proxy', 1);
   application.use(express.json());
   application.use('/api/auth', authLimiter);
   application.use('/api', apiLimiter);
