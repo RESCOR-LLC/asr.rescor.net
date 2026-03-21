@@ -33,7 +33,8 @@ export class AuditEventStore {
          timestamp:    $timestamp,
          ipAddress:    $ipAddress,
          userAgent:    $userAgent,
-         meta:         $meta
+         meta:         $meta,
+         ttl:          datetime($timestamp) + duration({days: 90})
        })`,
       {
         eventId,

@@ -24,6 +24,7 @@ const SCRIPTS = [
   '011-audit-events.cypher',
   '012-apoc-ttl.cypher',
   '013-service-accounts.cypher',
+  '014-audit-ttl.cypher',
 ];
 
 // ────────────────────────────────────────────────────────────────────
