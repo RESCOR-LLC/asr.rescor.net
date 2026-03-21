@@ -558,7 +558,7 @@ export default function DashboardPage() {
                   ['questionnaire', 'Questionnaire'],
                   ['status', 'Status'],
                   ['rating', 'Rating'],
-                  ['rskNormalized', 'Score'],
+                  ['rskNormalized', 'RU'],
                   ['version', 'Version'],
                   ['created', 'Created'],
                 ] as [SortColumn, string][]).map(([column, label]) => (
@@ -617,7 +617,7 @@ export default function DashboardPage() {
                     </TableCell>
                     <TableCell>
                       {review.rskNormalized != null
-                        ? `${review.rskNormalized.toFixed(1)}%`
+                        ? `${Math.ceil(review.rskNormalized)} RU`
                         : '—'}
                     </TableCell>
                     <TableCell>
