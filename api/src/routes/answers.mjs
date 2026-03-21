@@ -13,7 +13,7 @@ import { authorize, requireOwnershipOrAdmin } from '../middleware/authorize.mjs'
 // createAnswersRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createAnswersRouter(database, stormService, auditEventStore = null) {
+export function createAnswersRouter(database, stormService, auditEventStore = null, recorder) {
   const router = Router();
 
   // ── Save answers (bulk upsert) ─────────────────────────────────
@@ -61,7 +61,8 @@ export function createAnswersRouter(database, stormService, auditEventStore = nu
       };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9120, 'e', 'Failed to save answers', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

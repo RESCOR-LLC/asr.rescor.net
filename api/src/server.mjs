@@ -4,6 +4,8 @@
 
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import { Recorder } from '@rescor-llc/core-utils';
 import { createConfiguration, createDatabase } from './database.mjs';
 import { createConfigRouter } from './routes/config.mjs';
 import { createReviewsRouter } from './routes/reviews.mjs';
@@ -17,7 +19,7 @@ import { createGateRouter } from './routes/gates.mjs';
 import { createExportRouter } from './routes/exportDocuments.mjs';
 import { StormService } from './StormService.mjs';
 import { createAuthenticationMiddleware } from './middleware/authenticate.mjs';
-import { authorize } from './middleware/authorize.mjs';
+import { authorize, initializeAuthorization } from './middleware/authorize.mjs';
 import { authLimiter, apiLimiter } from './middleware/rateLimiter.mjs';
 import { UserStore } from './persistence/UserStore.mjs';
 import { AuthEventStore } from './persistence/AuthEventStore.mjs';
@@ -34,8 +36,15 @@ const PORT = 3100;
 // ────────────────────────────────────────────────────────────────────
 
 async function bootstrap() {
+  const recorder = new Recorder('asr-api.log', 'asr-api');
+  recorder.clearErrorState;
+
   const application = express();
   application.set('trust proxy', 1);
+  application.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }));
   application.use(express.json());
   application.use('/api/auth', authLimiter);
   application.use('/api', apiLimiter);
@@ -55,6 +64,8 @@ async function bootstrap() {
   const tenantStore = new TenantStore(database);
   const serviceAccountStore = new ServiceAccountStore(database);
 
+  initializeAuthorization({ recorder, auditEventStore });
+
   const stormService = await StormService.create({ configuration });
 
   // Auth config from Infisical (optional — absent in dev = auth-optional)
@@ -71,7 +82,6 @@ async function bootstrap() {
     response.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      storm: stormService.snapshot()
     });
   });
 
@@ -92,27 +102,39 @@ async function bootstrap() {
   });
 
   // Mount routes — config is public (read), reviews + answers gated
-  application.use('/api/config', createConfigRouter(database));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database, auditEventStore));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database, stormService, auditEventStore));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database, auditEventStore));
-  application.use('/api/reviews', authorize('admin', 'auditor'), createAuditorCommentsRouter(database, auditEventStore));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database, auditEventStore));
-  application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore, authEventStore, auditEventStore, tenantStore));
-  application.use('/api/admin/service-accounts', authorize('admin'), createServiceAccountRouter(serviceAccountStore, auditEventStore));
-  application.use('/api/admin/tenants', authorize('admin'), createTenantDataRouter(database, auditEventStore));
-  application.use('/api/admin/questionnaire', authorize('admin'), createQuestionnaireAdminRouter(database, auditEventStore));
-  application.use('/api', createGateRouter(database, stormService, auditEventStore));
-  application.use('/api', createExportRouter(database, stormService));
+  application.use('/api/config', createConfigRouter(database, recorder));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database, stormService, auditEventStore, recorder));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', authorize('admin', 'auditor'), createAuditorCommentsRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database, auditEventStore, recorder));
+  application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore, authEventStore, auditEventStore, tenantStore, recorder));
+  application.use('/api/admin/service-accounts', authorize('admin'), createServiceAccountRouter(serviceAccountStore, auditEventStore, recorder));
+  application.use('/api/admin/tenants', authorize('admin'), createTenantDataRouter(database, auditEventStore, recorder));
+  application.use('/api/admin/questionnaire', authorize('admin'), createQuestionnaireAdminRouter(database, auditEventStore, recorder));
+  application.use('/api', createGateRouter(database, stormService, auditEventStore, recorder));
+  application.use('/api', createExportRouter(database, stormService, recorder));
+
+  // ── Global error handler (must be last) ─────────────────────────
+  application.use((error, request, response, next) => {
+    if (response.headersSent) { next(error); return; }
+    recorder.emit(9002, 'e', 'Unhandled route error', {
+      method: request.method,
+      path: request.path,
+      error: error.message,
+    });
+    response.status(500).json({ error: 'Internal server error' });
+  });
 
   application.listen(PORT, () => {
-    console.log(`ASR API listening on port ${PORT}`);
+    recorder.emit(9000, 'i', `ASR API listening on port ${PORT}`);
   });
 
   return application;
 }
 
 bootstrap().catch((error) => {
-  console.error('Failed to start ASR API:', error);
+  const recorder = new Recorder('asr-api.log', 'asr-api');
+  recorder.emit(9001, 's', 'Failed to start ASR API', { error: error.message });
   process.exit(1);
 });

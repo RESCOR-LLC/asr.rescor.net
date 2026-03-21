@@ -15,7 +15,7 @@ import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 // createAuditorCommentsRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createAuditorCommentsRouter(database, auditEventStore = null) {
+export function createAuditorCommentsRouter(database, auditEventStore = null, recorder = null) {
   const router = Router();
 
   // ── Create auditor comment ─────────────────────────────────────
@@ -91,7 +91,8 @@ export function createAuditorCommentsRouter(database, auditEventStore = null) {
       body = result[0]?.comment || result[0] || null;
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9140, 'e', 'Failed to create auditor comment', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -137,7 +138,8 @@ export function createAuditorCommentsRouter(database, auditEventStore = null) {
       }));
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9141, 'e', 'Failed to list auditor comments', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -173,7 +175,8 @@ export function createAuditorCommentsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9142, 'e', 'Failed to resolve auditor comment', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

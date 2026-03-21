@@ -77,7 +77,7 @@ function mitigationAggregate(mitigations, dampingFactor = 4) {
 // createRemediationRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createRemediationRouter(database, auditEventStore = null) {
+export function createRemediationRouter(database, auditEventStore = null, recorder = null) {
   const router = Router();
 
   // ── GET /api/reviews/:reviewId/remediation ─────────────────────
@@ -188,7 +188,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       });
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9170, 'e', 'Failed to load remediation items', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -275,7 +276,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       body = { created: createdCount };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9171, 'e', 'Failed to generate remediation items', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -377,7 +379,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9172, 'e', 'Failed to add remediation item', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -449,7 +452,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9173, 'e', 'Failed to update remediation item', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -518,7 +522,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9174, 'e', 'Failed to update remediation status', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -562,7 +567,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9175, 'e', 'Failed to delete remediation item', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -637,7 +643,8 @@ export function createRemediationRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9176, 'e', 'Failed to accept risk', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

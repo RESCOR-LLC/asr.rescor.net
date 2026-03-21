@@ -14,7 +14,7 @@ import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 // createProposedChangesRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createProposedChangesRouter(database, auditEventStore = null) {
+export function createProposedChangesRouter(database, auditEventStore = null, recorder = null) {
   const router = Router();
 
   // ── Create proposed change ─────────────────────────────────────
@@ -80,7 +80,8 @@ export function createProposedChangesRouter(database, auditEventStore = null) {
       body = result[0]?.change || result[0] || null;
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9130, 'e', 'Failed to create proposed change', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -127,7 +128,8 @@ export function createProposedChangesRouter(database, auditEventStore = null) {
       }));
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9131, 'e', 'Failed to list proposed changes', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -171,7 +173,8 @@ export function createProposedChangesRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9132, 'e', 'Failed to resolve proposed change', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

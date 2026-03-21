@@ -6,7 +6,7 @@ import { Router } from 'express';
 import express from 'express';
 import { TenantDataStore } from '../persistence/TenantDataStore.mjs';
 
-export function createTenantDataRouter(database, auditEventStore = null) {
+export function createTenantDataRouter(database, auditEventStore = null, recorder = null) {
   const router = Router();
   const tenantDataStore = new TenantDataStore(database);
 
@@ -49,8 +49,9 @@ export function createTenantDataRouter(database, auditEventStore = null) {
         }
       }
     } catch (error) {
+      recorder?.emit(9230, 'e', 'Failed to export tenant data', { error: error.message });
       statusCode = 500;
-      body = { error: error.message };
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -132,7 +133,12 @@ export function createTenantDataRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = error.statusCode || 500;
-      body = { error: error.message };
+      if (statusCode === 500) {
+        recorder?.emit(9231, 'e', 'Failed to import tenant data', { error: error.message });
+        body = { error: 'Internal server error' };
+      } else {
+        body = { error: error.message };
+      }
     }
 
     response.status(statusCode).json(body);

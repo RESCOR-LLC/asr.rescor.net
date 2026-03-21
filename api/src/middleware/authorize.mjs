@@ -1,22 +1,18 @@
 // ════════════════════════════════════════════════════════════════════
 // Authorization Middleware — RBAC role check
 // ════════════════════════════════════════════════════════════════════
-// Guards routes by requiring the authenticated user to hold at least
-// one of the specified roles.  The `admin` role implicitly grants
-// access to every route (bypass).
-// ════════════════════════════════════════════════════════════════════
 
-/**
- * Build an Express middleware that checks `request.user.roles` against
- * a whitelist.  Admin always passes.
- *
- * @param  {...string} requiredRoles - At least one of these must be present
- * @returns {Function} Express middleware
- */
+let _recorder = null;
+let _auditEventStore = null;
+
+export function initializeAuthorization({ recorder, auditEventStore }) {
+  _recorder = recorder;
+  _auditEventStore = auditEventStore;
+}
+
 export function authorize(...requiredRoles) {
   return function checkAuthorization(request, response, next) {
     const userRoles = request.user?.roles || [];
-
     const isAdmin = userRoles.includes('admin');
     const hasRequiredRole = requiredRoles.some((role) => userRoles.includes(role));
 
@@ -24,6 +20,26 @@ export function authorize(...requiredRoles) {
       next();
       return;
     }
+
+    _recorder?.emit(9010, 'w', 'Authorization denied: insufficient roles', {
+      sub: request.user?.sub,
+      tenantId: request.user?.tenantId,
+      required: requiredRoles,
+      actual: userRoles,
+      path: request.path,
+      method: request.method,
+    });
+
+    _auditEventStore?.logEvent({
+      tenantId: request.user?.tenantId,
+      sub: request.user?.sub,
+      action: 'authorization.denied',
+      resourceType: 'route',
+      resourceId: `${request.method} ${request.path}`,
+      ipAddress: request.ip,
+      userAgent: request.get('user-agent'),
+      meta: { requiredRoles, userRoles },
+    });
 
     response.status(403).json({
       error: {
@@ -34,13 +50,6 @@ export function authorize(...requiredRoles) {
   };
 }
 
-/**
- * Middleware that verifies the requesting user owns the review or is admin.
- * Must be placed AFTER `authenticate` and after `request.params.reviewId` is set.
- *
- * @param {object} database - SessionPerQueryWrapper instance
- * @returns {Function} Express middleware
- */
 export function requireOwnershipOrAdmin(database) {
   return async function checkOwnership(request, response, next) {
     const userRoles = request.user?.roles || [];
@@ -58,7 +67,6 @@ export function requireOwnershipOrAdmin(database) {
 
     try {
       const tenantId = request.user?.tenantId || null;
-
       const result = await database.query(
         `MATCH (review:Review {reviewId: $reviewId})-[:SCOPED_TO]->(:Tenant {tenantId: $tenantId})
          RETURN review.createdBy AS createdBy`,
@@ -78,11 +86,28 @@ export function requireOwnershipOrAdmin(database) {
         return;
       }
 
+      _recorder?.emit(9011, 'w', 'Authorization denied: not review owner', {
+        sub: request.user?.sub,
+        reviewId,
+        tenantId,
+      });
+
+      _auditEventStore?.logEvent({
+        tenantId,
+        sub: request.user?.sub,
+        action: 'authorization.ownership_denied',
+        resourceType: 'review',
+        resourceId: reviewId,
+        ipAddress: request.ip,
+        userAgent: request.get('user-agent'),
+      });
+
       response.status(403).json({
         error: { code: 'FORBIDDEN', message: 'You do not own this review' },
       });
     } catch (error) {
-      response.status(500).json({ error: { code: 'INTERNAL', message: error.message } });
+      _recorder?.emit(9012, 'e', 'Ownership check failed', { error: error.message });
+      response.status(500).json({ error: 'Internal server error' });
     }
   };
 }

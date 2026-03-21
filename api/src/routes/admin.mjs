@@ -8,7 +8,7 @@ import { Router } from 'express';
 // createAdminRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createAdminRouter(database, userStore, authEventStore, auditEventStore = null, tenantStore = null) {
+export function createAdminRouter(database, userStore, authEventStore, auditEventStore = null, tenantStore = null, recorder = null) {
   const router = Router();
 
   // ── List users (tenant-scoped for non-superadmin) ─────────────
@@ -21,7 +21,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = await userStore.listUsers(tenantId);
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9150, 'e', 'Failed to list users', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -45,7 +46,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9151, 'e', 'Failed to provision user', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -84,7 +86,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9152, 'e', 'Failed to update user roles', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -123,7 +126,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9153, 'e', 'Failed to reassign review', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -148,7 +152,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = { events, total };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9154, 'e', 'Failed to list auth events', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -166,7 +171,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = { activeCount };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9155, 'e', 'Failed to count active users', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -185,7 +191,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = await authEventStore.listSessions({ limit, offset, tenantId });
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9156, 'e', 'Failed to list auth sessions', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -220,7 +227,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = { events, total };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9157, 'e', 'Failed to list audit events', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -240,7 +248,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = await authEventStore.listSessionEvents({ sub: sub || null, from, to });
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9158, 'e', 'Failed to list session events', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -257,7 +266,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       body = await tenantStore.listTenants();
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9159, 'e', 'Failed to list tenants', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -293,7 +303,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9160, 'e', 'Failed to provision tenant', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -327,7 +338,8 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder?.emit(9161, 'e', 'Failed to deactivate tenant', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

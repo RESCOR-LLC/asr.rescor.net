@@ -14,7 +14,7 @@ import { verifyReviewTenant } from '../persistence/ReviewStore.mjs';
 // createGateRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createGateRouter(database, stormService, auditEventStore = null) {
+export function createGateRouter(database, stormService, auditEventStore = null, recorder = null) {
   const router = Router();
 
   // ── GET /gates — list active gate questions (config-level) ────
@@ -51,8 +51,9 @@ export function createGateRouter(database, stormService, auditEventStore = null)
         };
       });
     } catch (error) {
+      recorder?.emit(9200, 'e', 'Failed to list gate questions', { error: error.message });
       statusCode = 500;
-      body = { error: error.message };
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -126,8 +127,9 @@ export function createGateRouter(database, stormService, auditEventStore = null)
           };
         });
       } catch (error) {
+        recorder?.emit(9201, 'e', 'Failed to load gate answers for review', { error: error.message });
         statusCode = 500;
-        body = { error: error.message };
+        body = { error: 'Internal server error' };
       }
 
       response.status(statusCode).json(body);
@@ -220,8 +222,9 @@ export function createGateRouter(database, stormService, auditEventStore = null)
         };
       } catch (error) {
         console.error('[gates] PUT error:', error);
+        recorder?.emit(9202, 'e', 'Failed to save gate answer', { error: error.message });
         statusCode = 500;
-        body = { error: error.message };
+        body = { error: 'Internal server error' };
       }
 
       response.status(statusCode).json(body);
@@ -258,8 +261,9 @@ export function createGateRouter(database, stormService, auditEventStore = null)
           clearedCount: cleared,
         };
       } catch (error) {
+        recorder?.emit(9203, 'e', 'Failed to delete gate answer', { error: error.message });
         statusCode = 500;
-        body = { error: error.message };
+        body = { error: 'Internal server error' };
       }
 
       response.status(statusCode).json(body);

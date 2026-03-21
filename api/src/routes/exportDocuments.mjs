@@ -45,7 +45,7 @@ function allBorders(border = THIN_BORDER) {
 // createExportRouter
 // ════════════════════════════════════════════════════════════════════
 
-export function createExportRouter(database, stormService) {
+export function createExportRouter(database, stormService, recorder = null) {
   const router = Router();
 
   // ────────────────────────────────────────────────────────────────
@@ -68,7 +68,8 @@ export function createExportRouter(database, stormService) {
         response.send(buffer);
       } catch (error) {
         console.error('DOCX questionnaire export error:', error);
-        response.status(500).json({ error: error.message });
+        recorder?.emit(9210, 'e', 'Failed to export questionnaire DOCX', { error: error.message });
+        response.status(500).json({ error: 'Internal server error' });
       }
     },
   );
@@ -93,7 +94,8 @@ export function createExportRouter(database, stormService) {
         response.send(Buffer.from(buffer));
       } catch (error) {
         console.error('XLSX questionnaire export error:', error);
-        response.status(500).json({ error: error.message });
+        recorder?.emit(9211, 'e', 'Failed to export questionnaire XLSX', { error: error.message });
+        response.status(500).json({ error: 'Internal server error' });
       }
     },
   );
@@ -126,7 +128,8 @@ export function createExportRouter(database, stormService) {
         response.send(buffer);
       } catch (error) {
         console.error('DOCX review report export error:', error);
-        response.status(500).json({ error: error.message });
+        recorder?.emit(9212, 'e', 'Failed to export review report DOCX', { error: error.message });
+        response.status(500).json({ error: 'Internal server error' });
       }
     },
   );

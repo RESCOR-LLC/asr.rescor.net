@@ -652,7 +652,7 @@ function reverseRiskLevel(score, choiceCount) {
 // createQuestionnaireAdminRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createQuestionnaireAdminRouter(database, auditEventStore = null) {
+export function createQuestionnaireAdminRouter(database, auditEventStore = null, recorder = null) {
   const router = Router();
 
   // ── GET /drafts — list all drafts ─────────────────────────────
@@ -687,7 +687,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       });
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9180, 'e', 'Failed to list drafts', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -736,7 +737,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       body = { draftId, label, status: 'DRAFT', questionnaireId: resolvedQuestionnaireId, data: liveConfig };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9181, 'e', 'Failed to create draft', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -774,7 +776,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9182, 'e', 'Failed to load draft', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -839,7 +842,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9183, 'e', 'Failed to update draft', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -958,7 +962,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9184, 'e', 'Failed to publish draft', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -995,7 +1000,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9185, 'e', 'Failed to delete draft', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -1056,7 +1062,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9186, 'e', 'Failed to delete questionnaire version', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -1177,7 +1184,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       body = { draftId, label: draftLabel, status: 'DRAFT', questionnaireId: resolvedQuestionnaireId, data: draftData };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9187, 'e', 'Failed to import YAML questionnaire', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -1202,7 +1210,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      response.status(statusCode).json({ error: error.message });
+      recorder.emit(9188, 'e', 'Failed to export questionnaire', { error: error.message });
+      response.status(statusCode).json({ error: 'Internal server error' });
     }
   });
 
@@ -1244,7 +1253,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }));
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9189, 'e', 'Failed to list questionnaires', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -1290,7 +1300,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       body = { questionnaireId, name: name.trim(), active: true };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9190, 'e', 'Failed to create questionnaire', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -1342,7 +1353,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9191, 'e', 'Failed to update questionnaire', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -1381,7 +1393,8 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9192, 'e', 'Failed to delete questionnaire', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

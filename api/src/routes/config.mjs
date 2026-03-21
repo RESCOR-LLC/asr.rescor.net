@@ -9,7 +9,7 @@ import { loadScoringConfiguration } from '../scoring.mjs';
 // createConfigRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createConfigRouter(database) {
+export function createConfigRouter(database, recorder) {
   const router = Router();
 
   // ── Full questionnaire structure ───────────────────────────────
@@ -110,7 +110,8 @@ export function createConfigRouter(database) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9100, 'e', 'Failed to load configuration', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -125,7 +126,8 @@ export function createConfigRouter(database) {
       body = await loadScoringConfiguration(database, request.user?.tenantId);
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9101, 'e', 'Failed to load scoring configuration', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -184,7 +186,8 @@ export function createConfigRouter(database) {
       };
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9102, 'e', 'Failed to load questionnaire versions', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

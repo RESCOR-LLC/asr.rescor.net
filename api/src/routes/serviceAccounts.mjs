@@ -11,7 +11,7 @@ const SERVICE_ACCOUNT_KEY_PREFIX = 'sa_';
 // createServiceAccountRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createServiceAccountRouter(serviceAccountStore, auditEventStore = null) {
+export function createServiceAccountRouter(serviceAccountStore, auditEventStore = null, recorder = null) {
   const router = Router();
 
   // ── Create service account ───────────────────────────────────────
@@ -68,8 +68,9 @@ export function createServiceAccountRouter(serviceAccountStore, auditEventStore 
         }
       }
     } catch (error) {
+      recorder?.emit(9220, 'e', 'Failed to create service account', { error: error.message });
       statusCode = 500;
-      body = { error: error.message };
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -84,8 +85,9 @@ export function createServiceAccountRouter(serviceAccountStore, auditEventStore 
       const tenantId = request.user?.tenantId || null;
       body = await serviceAccountStore.list(tenantId);
     } catch (error) {
+      recorder?.emit(9221, 'e', 'Failed to list service accounts', { error: error.message });
       statusCode = 500;
-      body = { error: error.message };
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);
@@ -118,8 +120,9 @@ export function createServiceAccountRouter(serviceAccountStore, auditEventStore 
         }
       }
     } catch (error) {
+      recorder?.emit(9222, 'e', 'Failed to revoke service account', { error: error.message });
       statusCode = 500;
-      body = { error: error.message };
+      body = { error: 'Internal server error' };
     }
 
     response.status(statusCode).json(body);

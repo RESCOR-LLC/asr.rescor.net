@@ -30,7 +30,7 @@ function sendResult(response, statusCode, body) {
 // createReviewsRouter
 // ────────────────────────────────────────────────────────────────────
 
-export function createReviewsRouter(database, auditEventStore = null) {
+export function createReviewsRouter(database, auditEventStore = null, recorder) {
   const router = Router();
 
   // ── List reviews ────────────────────────────────────────────────
@@ -76,7 +76,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       });
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9110, 'e', 'Failed to list reviews', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -117,7 +118,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9111, 'e', 'Failed to load review', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -229,7 +231,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9112, 'e', 'Failed to create review', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -265,7 +268,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9113, 'e', 'Failed to update classification', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -310,7 +314,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9114, 'e', 'Failed to update deployment', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -344,7 +349,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9115, 'e', 'Failed to submit review', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -381,7 +387,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9116, 'e', 'Failed to delete review', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
@@ -418,7 +425,8 @@ export function createReviewsRouter(database, auditEventStore = null) {
       }
     } catch (error) {
       statusCode = 500;
-      body = { error: error.message };
+      recorder.emit(9117, 'e', 'Failed to rename review', { error: error.message });
+      body = { error: 'Internal server error' };
     }
 
     sendResult(response, statusCode, body);
