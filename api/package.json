@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node --env-file-if-exists=../../core.rescor.net/.env --env-file=../.env --watch src/server.mjs",
     "start": "node --env-file-if-exists=../../core.rescor.net/.env --env-file=../.env src/server.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "cypher:setup": "node --env-file-if-exists=../../core.rescor.net/.env --env-file=../.env src/setupDatabase.mjs",
     "cypher:configure": "node --env-file-if-exists=../../core.rescor.net/.env --env-file=../.env src/configureFromYaml.mjs"
   },
@@ -25,5 +27,8 @@
     "js-yaml": "^4.1.1",
     "neo4j-driver": "^5.28.3",
     "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }
