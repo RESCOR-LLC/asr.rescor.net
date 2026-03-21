@@ -56,6 +56,7 @@ export class TenantDataStore {
       complianceTagConfigs,
       reviews,
       users,
+      globalNodes,
     ] = await Promise.all([
       this._exportScoringConfigs(tenantId),
       this._exportQuestionnaireSnapshots(tenantId),
@@ -64,6 +65,7 @@ export class TenantDataStore {
       this._exportComplianceTagConfigs(tenantId),
       this._exportReviews(tenantId),
       this._exportUsers(tenantId),
+      this._exportGlobalQuestionnaireNodes(),
     ]);
 
     const answerCount = reviews.reduce((sum, r) => sum + r.answers.length, 0);
@@ -74,7 +76,7 @@ export class TenantDataStore {
 
     return {
       manifest: {
-        formatVersion: 1,
+        formatVersion: 2,
         exportedAt: new Date().toISOString(),
         exportedBy: exportedBy || null,
         sourceTenantId: tenantId,
@@ -92,8 +94,20 @@ export class TenantDataStore {
           auditorComments: auditorCommentCount,
           gateAnswers: gateAnswerCount,
           users: users.length,
+          globalNodes: {
+            questionnaires: globalNodes.questionnaires.length,
+            domains: globalNodes.domains.length,
+            questions: globalNodes.questions.length,
+            weightTiers: globalNodes.weightTiers.length,
+            classificationQuestions: globalNodes.classificationQuestions.length,
+            sourceQuestions: globalNodes.sourceQuestions.length,
+            environmentQuestions: globalNodes.environmentQuestions.length,
+            deploymentArchetypes: globalNodes.deploymentArchetypes.length,
+            scoreScales: globalNodes.scoreScales.length,
+          },
         },
       },
+      globalNodes,
       scoringConfigs,
       questionnaireSnapshots,
       questionnaireDrafts,
@@ -313,6 +327,7 @@ export class TenantDataStore {
 
     const warnings = [];
     const counts = {
+      globalNodes: 0,
       scoringConfigs: 0,
       questionnaireSnapshots: 0,
       questionnaireDrafts: 0,
@@ -327,6 +342,9 @@ export class TenantDataStore {
       gateAnswers: 0,
       skipped: 0,
     };
+
+    // 0. Global questionnaire structure (idempotent MERGE — safe for existing instances)
+    counts.globalNodes = await this._importGlobalNodes(exportData.globalNodes);
 
     // 1. ScoringConfigs
     for (const sc of (exportData.scoringConfigs || [])) {
@@ -695,6 +713,237 @@ export class TenantDataStore {
     }
 
     return { success: true, targetTenantId: tenantId, counts, warnings };
+  }
+
+  // ── Export global questionnaire structure ────────────────────────
+
+  async _exportGlobalQuestionnaireNodes() {
+    const [
+      questionnaires,
+      domains,
+      questions,
+      weightTiers,
+      classificationQuestions,
+      sourceQuestions,
+      environmentQuestions,
+      deploymentArchetypes,
+      scoreScales,
+    ] = await Promise.all([
+      this.database.query(
+        `MATCH (q:Questionnaire)
+         OPTIONAL MATCH (q)-[:CURRENT_VERSION]->(snap:QuestionnaireSnapshot)
+         RETURN q, snap.version AS currentVersion`
+      ),
+      this.database.query(
+        `MATCH (d:Domain {active: true})
+         RETURN d ORDER BY d.domainIndex`
+      ),
+      this.database.query(
+        `MATCH (q:Question {active: true})
+         RETURN q ORDER BY q.domainIndex, q.questionIndex`
+      ),
+      this.database.query(`MATCH (wt:WeightTier) RETURN wt`),
+      this.database.query(
+        `MATCH (cq:ClassificationQuestion)
+         OPTIONAL MATCH (cq)-[:HAS_CHOICE]->(cc:ClassificationChoice)
+         RETURN cq, collect(cc {.text, .factor, .sortOrder}) AS choices
+         ORDER BY cq.questionId`
+      ),
+      this.database.query(
+        `MATCH (sq:SourceQuestion)
+         OPTIONAL MATCH (sq)-[:HAS_CHOICE]->(sc:SourceChoice)
+         RETURN sq, collect(sc {.text, .source, .sortOrder}) AS choices
+         ORDER BY sq.questionId`
+      ),
+      this.database.query(
+        `MATCH (eq:EnvironmentQuestion)
+         OPTIONAL MATCH (eq)-[:HAS_CHOICE]->(ec:EnvironmentChoice)
+         RETURN eq, collect(ec {.text, .environment, .sortOrder}) AS choices
+         ORDER BY eq.questionId`
+      ),
+      this.database.query(
+        `MATCH (da:DeploymentArchetype)
+         RETURN da ORDER BY da.sortOrder`
+      ),
+      this.database.query(`MATCH (ss:ScoreScale) RETURN ss`),
+    ]);
+
+    return {
+      questionnaires: questionnaires.map((r) => {
+        const q = toPlain(r.q || r);
+        q.currentVersion = r.currentVersion || null;
+        return q;
+      }),
+      domains: domains.map((r) => toPlain(r.d || r)),
+      questions: questions.map((r) => toPlain(r.q || r)),
+      weightTiers: weightTiers.map((r) => toPlain(r.wt || r)),
+      classificationQuestions: classificationQuestions.map((r) => ({
+        ...toPlain(r.cq || r),
+        choices: (r.choices || []).map(toPlain),
+      })),
+      sourceQuestions: sourceQuestions.map((r) => ({
+        ...toPlain(r.sq || r),
+        choices: (r.choices || []).map(toPlain),
+      })),
+      environmentQuestions: environmentQuestions.map((r) => ({
+        ...toPlain(r.eq || r),
+        choices: (r.choices || []).map(toPlain),
+      })),
+      deploymentArchetypes: deploymentArchetypes.map((r) => toPlain(r.da || r)),
+      scoreScales: scoreScales.map((r) => toPlain(r.ss || r)),
+    };
+  }
+
+  // ── Import global questionnaire nodes (idempotent MERGE) ───────
+
+  async _importGlobalNodes(globalNodes) {
+    if (!globalNodes) return 0;
+    let count = 0;
+
+    // Questionnaires
+    for (const q of (globalNodes.questionnaires || [])) {
+      await this.database.query(
+        `MERGE (q:Questionnaire {questionnaireId: $questionnaireId})
+         ON CREATE SET q.name        = $name,
+                       q.description = $description,
+                       q.active      = $active,
+                       q.createdBy   = $createdBy,
+                       q.created     = $created,
+                       q.updated     = $updated`,
+        { questionnaireId: q.questionnaireId, name: q.name, description: q.description || '', active: q.active ?? true, createdBy: q.createdBy || 'import', created: q.created || new Date().toISOString(), updated: q.updated || new Date().toISOString() }
+      );
+      count++;
+    }
+
+    // Domains
+    for (const d of (globalNodes.domains || [])) {
+      await this.database.query(
+        `MERGE (d:Domain {domainIndex: $domainIndex})
+         SET d.name       = $name,
+             d.policyRefs = $policyRefs,
+             d.csfRefs    = $csfRefs,
+             d.active     = true`,
+        { domainIndex: d.domainIndex, name: d.name, policyRefs: d.policyRefs || [], csfRefs: d.csfRefs || [] }
+      );
+      count++;
+    }
+
+    // Questions
+    for (const q of (globalNodes.questions || [])) {
+      await this.database.query(
+        `MERGE (q:Question {domainIndex: $domainIndex, questionIndex: $questionIndex})
+         SET q.text                = $text,
+             q.weightTier          = $weightTier,
+             q.choices             = $choices,
+             q.choiceScores        = $choiceScores,
+             q.naScore             = $naScore,
+             q.applicability       = $applicability,
+             q.guidance            = $guidance,
+             q.responsibleFunction = $responsibleFunction,
+             q.active              = true
+         WITH q
+         MATCH (d:Domain {domainIndex: $domainIndex})
+         MERGE (d)-[:CONTAINS]->(q)`,
+        { domainIndex: q.domainIndex, questionIndex: q.questionIndex, text: q.text, weightTier: q.weightTier, choices: q.choices || [], choiceScores: q.choiceScores || [], naScore: q.naScore ?? 1, applicability: q.applicability || [], guidance: q.guidance || null, responsibleFunction: q.responsibleFunction || null }
+      );
+      count++;
+    }
+
+    // Weight tiers
+    for (const wt of (globalNodes.weightTiers || [])) {
+      await this.database.query(
+        `MERGE (wt:WeightTier {name: $name})
+         SET wt.value = $value`,
+        { name: wt.name, value: wt.value }
+      );
+      count++;
+    }
+
+    // Classification questions + choices
+    for (const cq of (globalNodes.classificationQuestions || [])) {
+      await this.database.query(
+        `MERGE (cq:ClassificationQuestion {questionId: $questionId})
+         SET cq.text      = $text,
+             cq.naAllowed = $naAllowed`,
+        { questionId: cq.questionId || 'classification', text: cq.text, naAllowed: cq.naAllowed ?? false }
+      );
+      for (const choice of (cq.choices || [])) {
+        await this.database.query(
+          `MATCH (cq:ClassificationQuestion {questionId: $questionId})
+           MERGE (cq)-[:HAS_CHOICE]->(cc:ClassificationChoice {text: $text})
+           SET cc.factor    = $factor,
+               cc.sortOrder = $sortOrder`,
+          { questionId: cq.questionId || 'classification', text: choice.text, factor: choice.factor, sortOrder: choice.sortOrder ?? 0 }
+        );
+      }
+      count++;
+    }
+
+    // Source questions + choices
+    for (const sq of (globalNodes.sourceQuestions || [])) {
+      await this.database.query(
+        `MERGE (sq:SourceQuestion {questionId: $questionId})
+         SET sq.text      = $text,
+             sq.naAllowed = $naAllowed`,
+        { questionId: sq.questionId || 'source', text: sq.text, naAllowed: sq.naAllowed ?? false }
+      );
+      for (const choice of (sq.choices || [])) {
+        await this.database.query(
+          `MATCH (sq:SourceQuestion {questionId: $questionId})
+           MERGE (sq)-[:HAS_CHOICE]->(sc:SourceChoice {source: $source})
+           SET sc.text      = $text,
+               sc.sortOrder = $sortOrder`,
+          { questionId: sq.questionId || 'source', source: choice.source, text: choice.text, sortOrder: choice.sortOrder ?? 0 }
+        );
+      }
+      count++;
+    }
+
+    // Environment questions + choices
+    for (const eq of (globalNodes.environmentQuestions || [])) {
+      await this.database.query(
+        `MERGE (eq:EnvironmentQuestion {questionId: $questionId})
+         SET eq.text      = $text,
+             eq.naAllowed = $naAllowed`,
+        { questionId: eq.questionId || 'environment', text: eq.text, naAllowed: eq.naAllowed ?? false }
+      );
+      for (const choice of (eq.choices || [])) {
+        await this.database.query(
+          `MATCH (eq:EnvironmentQuestion {questionId: $questionId})
+           MERGE (eq)-[:HAS_CHOICE]->(ec:EnvironmentChoice {environment: $environment})
+           SET ec.text      = $text,
+               ec.sortOrder = $sortOrder`,
+          { questionId: eq.questionId || 'environment', environment: choice.environment, text: choice.text, sortOrder: choice.sortOrder ?? 0 }
+        );
+      }
+      count++;
+    }
+
+    // Deployment archetypes
+    for (const da of (globalNodes.deploymentArchetypes || [])) {
+      await this.database.query(
+        `MERGE (da:DeploymentArchetype {code: $code})
+         SET da.label       = $label,
+             da.description = $description,
+             da.source      = $source,
+             da.environment = $environment,
+             da.sortOrder   = $sortOrder`,
+        { code: da.code, label: da.label, description: da.description || '', source: da.source, environment: da.environment, sortOrder: da.sortOrder ?? 0 }
+      );
+      count++;
+    }
+
+    // Score scales
+    for (const ss of (globalNodes.scoreScales || [])) {
+      await this.database.query(
+        `MERGE (ss:ScoreScale {name: $name})
+         SET ss.ranges = $ranges`,
+        { name: ss.name, ranges: ss.ranges }
+      );
+      count++;
+    }
+
+    return count;
   }
 
   // ── Wipe all tenant data (for replace strategy) ──────────────────
