@@ -17,6 +17,48 @@ const VALID_WEIGHT_TIERS = new Set(['Critical', 'High', 'Medium', 'Info']);
 const VALID_FUNCTIONS = new Set(['LEGAL', 'ERM', 'EA', 'SEPG', 'SAE', 'GENERAL']);
 
 // ────────────────────────────────────────────────────────────────────
+// Auto-resolve questionnaire — link or create as needed
+// ────────────────────────────────────────────────────────────────────
+
+async function resolveQuestionnaire(database, { draftId, questionnaireId, label, creator, autoCreate = false }) {
+  let resolvedId = questionnaireId;
+
+  if (!resolvedId) {
+    const active = await database.query(
+      `MATCH (q:Questionnaire {active: true}) RETURN q.questionnaireId AS questionnaireId LIMIT 2`
+    );
+    if (active.length === 1) {
+      resolvedId = active[0].questionnaireId;
+    } else if (active.length === 0 && autoCreate) {
+      resolvedId = randomUUID();
+      await database.query(
+        `CREATE (q:Questionnaire {
+           questionnaireId: $questionnaireId,
+           name:            $name,
+           description:     'Auto-created from import',
+           active:          true,
+           createdBy:       $createdBy,
+           created:         $now,
+           updated:         $now
+         })`,
+        { questionnaireId: resolvedId, name: label || 'ASR Questionnaire', createdBy: creator, now: new Date().toISOString() }
+      );
+    }
+  }
+
+  if (resolvedId) {
+    await database.query(
+      `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
+       MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
+       MERGE (draft)-[:BELONGS_TO]->(q)`,
+      { draftId, questionnaireId: resolvedId }
+    );
+  }
+
+  return resolvedId;
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Validation — draft data structure
 // ────────────────────────────────────────────────────────────────────
 
@@ -226,6 +268,126 @@ async function readLiveConfig(database, tenantId = null) {
 
 async function publishDraft(database, draftData, questionnaireLabel, publishedBy) {
   const statements = [];
+
+  // ── Weight tiers (must exist before HAS_WEIGHT relationships) ──
+  for (const tier of (draftData.weightTiers || [])) {
+    statements.push({
+      cypher: `
+        MERGE (tier:WeightTier {name: $name})
+          SET tier.value   = $value,
+              tier.updated = datetime()
+      `,
+      params: { name: tier.name, value: tier.value },
+    });
+  }
+
+  // ── Classification question + choices ──────────────────────────
+  if (draftData.classification) {
+    const choiceParams = draftData.classification.choices.map((choice, index) => ({
+      text: choice.text,
+      factor: choice.factor,
+      sortOrder: choice.sortOrder ?? index,
+    }));
+    statements.push({
+      cypher: `
+        MERGE (classification:ClassificationQuestion {questionId: 'classification'})
+          SET classification.text      = $text,
+              classification.naAllowed = false,
+              classification.updated   = datetime()
+        WITH classification
+        UNWIND $choices AS choice
+        MERGE (classification)-[:HAS_CHOICE]->(c:ClassificationChoice {text: choice.text})
+          SET c.factor    = choice.factor,
+              c.sortOrder = choice.sortOrder,
+              c.updated   = datetime()
+      `,
+      params: { text: draftData.classification.text, choices: choiceParams },
+    });
+  }
+
+  // ── Source question + choices ───────────────────────────────────
+  if (draftData.source) {
+    const choiceParams = draftData.source.choices.map((choice, index) => ({
+      text: choice.text,
+      source: choice.source,
+      sortOrder: choice.sortOrder ?? index,
+    }));
+    statements.push({
+      cypher: `
+        MERGE (sourceQuestion:SourceQuestion {questionId: 'source'})
+          SET sourceQuestion.text      = $text,
+              sourceQuestion.naAllowed = false,
+              sourceQuestion.updated   = datetime()
+        WITH sourceQuestion
+        UNWIND $choices AS choice
+        MERGE (sourceQuestion)-[:HAS_CHOICE]->(c:SourceChoice {source: choice.source})
+          SET c.text      = choice.text,
+              c.sortOrder = choice.sortOrder,
+              c.updated   = datetime()
+      `,
+      params: { text: draftData.source.text, choices: choiceParams },
+    });
+  }
+
+  // ── Environment question + choices ─────────────────────────────
+  if (draftData.environment) {
+    const choiceParams = draftData.environment.choices.map((choice, index) => ({
+      text: choice.text,
+      environment: choice.environment,
+      sortOrder: choice.sortOrder ?? index,
+    }));
+    statements.push({
+      cypher: `
+        MERGE (environmentQuestion:EnvironmentQuestion {questionId: 'environment'})
+          SET environmentQuestion.text      = $text,
+              environmentQuestion.naAllowed = false,
+              environmentQuestion.updated   = datetime()
+        WITH environmentQuestion
+        UNWIND $choices AS choice
+        MERGE (environmentQuestion)-[:HAS_CHOICE]->(c:EnvironmentChoice {environment: choice.environment})
+          SET c.text      = choice.text,
+              c.sortOrder = choice.sortOrder,
+              c.updated   = datetime()
+      `,
+      params: { text: draftData.environment.text, choices: choiceParams },
+    });
+  }
+
+  // ── Deployment archetypes ──────────────────────────────────────
+  for (const archetype of (draftData.archetypes || [])) {
+    statements.push({
+      cypher: `
+        MERGE (archetype:DeploymentArchetype {code: $code})
+          SET archetype.label       = $label,
+              archetype.description = $description,
+              archetype.source      = $source,
+              archetype.environment = $environment,
+              archetype.sortOrder   = $sortOrder,
+              archetype.updated     = datetime()
+      `,
+      params: {
+        code: archetype.code,
+        label: archetype.label,
+        description: archetype.description || '',
+        source: archetype.source,
+        environment: archetype.environment,
+        sortOrder: archetype.sortOrder,
+      },
+    });
+  }
+
+  // ── Compliance tag configs ─────────────────────────────────────
+  for (const [tag, config] of Object.entries(draftData.complianceSources || {})) {
+    statements.push({
+      cypher: `
+        MERGE (ctc:ComplianceTagConfig {tag: $tag})
+          SET ctc.action  = $action,
+              ctc.baseUrl = $baseUrl,
+              ctc.updated = datetime()
+      `,
+      params: { tag, action: config.action || null, baseUrl: config.baseUrl || null },
+    });
+  }
 
   // ── Domains and questions ─────────────────────────────────────
   for (let domainIndex = 0; domainIndex < draftData.domains.length; domainIndex++) {
@@ -566,17 +728,12 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
         }
       );
 
-      // Link to questionnaire if specified
-      if (questionnaireId) {
-        await database.query(
-          `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
-           MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
-           MERGE (draft)-[:BELONGS_TO]->(q)`,
-          { draftId, questionnaireId }
-        );
-      }
+      // Link to questionnaire (auto-detect if only one active)
+      const resolvedQuestionnaireId = await resolveQuestionnaire(database, {
+        draftId, questionnaireId, label, creator, autoCreate: false,
+      });
 
-      body = { draftId, label, status: 'DRAFT', questionnaireId, data: liveConfig };
+      body = { draftId, label, status: 'DRAFT', questionnaireId: resolvedQuestionnaireId, data: liveConfig };
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };
@@ -1012,17 +1169,12 @@ export function createQuestionnaireAdminRouter(database, auditEventStore = null)
         }
       );
 
-      // Link to questionnaire if specified
-      if (questionnaireId) {
-        await database.query(
-          `MATCH (draft:QuestionnaireDraft {draftId: $draftId})
-           MATCH (q:Questionnaire {questionnaireId: $questionnaireId})
-           MERGE (draft)-[:BELONGS_TO]->(q)`,
-          { draftId, questionnaireId }
-        );
-      }
+      // Link to questionnaire (auto-create on fresh instance)
+      const resolvedQuestionnaireId = await resolveQuestionnaire(database, {
+        draftId, questionnaireId, label: draftLabel, creator, autoCreate: true,
+      });
 
-      body = { draftId, label: draftLabel, status: 'DRAFT', questionnaireId };
+      body = { draftId, label: draftLabel, status: 'DRAFT', questionnaireId: resolvedQuestionnaireId, data: draftData };
     } catch (error) {
       statusCode = 500;
       body = { error: error.message };
