@@ -304,26 +304,26 @@ This document evaluates the application platform against:
 | 3 | Technology fingerprinting (A05) | helmet removes X-Powered-By; nginx server_tokens off | **DONE** |
 | 4 | 403 failure logging (A09) | authorize() rejections logged to Recorder + AuditEventStore | **DONE** |
 
-### Tier 2 — Medium Impact, Moderate Effort
+### Tier 2 — Medium Impact, Moderate Effort ✓ COMPLETE
 
 | # | Gap | Fix | Status |
 |---|-----|-----|--------|
 | 5 | SCA tooling (A06/A08) | Dependabot enabled for api/ and frontend/ workspaces | **DONE** (4d68943) |
-| 6 | Security alerting (MT-8/A09) | Webhook or polling alert for cross-tenant attempts and brute-force events | Open |
+| 6 | Security alerting (MT-8/A09) | SecurityMonitor: brute-force, cross-tenant, credential stuffing detection | **DONE** (1b11068) |
 | 7 | AuditEvent TTL (MT-8) | 90-day APOC TTL on AuditEvent nodes (matches AuthEvent pattern) | **DONE** (2f20e0d) |
 | 8 | STORM baseUrl in health (A05) | Removed from unauthenticated health endpoint | **DONE** (132a8cb) |
 
-### Tier 3 — Strategic / Group E
+### Tier 3 — Strategic / Group E ✓ COMPLETE
 
 | # | Gap | Fix | Status |
 |---|-----|-----|--------|
-| 9 | Security tests (A04) | Test framework + tests for RBAC, tenant isolation, IDOR prevention | Open |
-| 10 | CI/CD pipeline (A08) | GitHub Actions with lint, type-check, `npm audit`, (future: tests) | Open |
-| 11 | Tenant offboarding (MT-7) | Hard purge workflow, OFFBOARDING status, access revocation, provisioning rollback | Open |
-| 12 | Encryption at rest (A02/Neo4j) | Host-level LUKS/dm-crypt on Neo4j volume | Open |
+| 9 | Security tests (A04) | vitest suite: 33 tests (RBAC, tenant isolation, error sanitization, headers) | **DONE** (f5b8356) |
+| 10 | CI/CD pipeline (A08) | GitHub Actions: type-check, build, dependency audit, security tests | **DONE** (f5b8356) |
+| 11 | Tenant offboarding (MT-7) | TenantStore.purgeTenant() + DELETE /tenants/:id/purge?confirm=yes | **DONE** (cb0187f) |
+| 12 | Encryption at rest (A02/Neo4j) | LUKS operational guide: `docs/ENCRYPTION-AT-REST.md` | **DONE** (829779a) |
 | 13 | Structured logging (A09) | Recorder wired throughout API (9000–9239 event codes) | **DONE** (132a8cb) |
-| 14 | Formal threat model (A04) | STRIDE analysis covering all application flows | Open |
-| 15 | Server-side session revocation (A01/A07) | Short-lived JWT + refresh token pattern, or token blacklist | Open |
+| 14 | Formal threat model (A04) | STRIDE analysis: 40 threats, 0 high-risk — `docs/STRIDE-THREAT-MODEL.md` | **DONE** (f170c7a) |
+| 15 | Server-side session revocation (A01/A07) | TokenDenylist + admin revoke endpoint + authenticate middleware check | **DONE** (144d63a) |
 
 ---
 
