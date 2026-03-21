@@ -54,8 +54,9 @@ function extractRequestMetadata(request) {
  * @param {string[]}   [options.allowedTenants] — whitelist of allowed tenant IDs (empty = all)
  * @param {AuthEventStore} [options.authEventStore] — optional AuthEventStore for activity logging
  * @param {ServiceAccountStore} [options.serviceAccountStore] — optional store for API key auth
+ * @param {TokenDenylist} [options.tokenDenylist] — optional denylist for session revocation
  */
-export function createAuthenticationMiddleware({ isDevelopment = false, tenantId, clientId, userStore = null, allowedTenants = [], authEventStore = null, serviceAccountStore = null }) {
+export function createAuthenticationMiddleware({ isDevelopment = false, tenantId, clientId, userStore = null, allowedTenants = [], authEventStore = null, serviceAccountStore = null, tokenDenylist = null }) {
   const developmentUser = Object.freeze({
     sub: 'dev-user-0000',
     preferred_username: 'developer',
@@ -174,6 +175,13 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
       }
 
       const { payload } = await jwtVerify(token, jwks, verifyOptions);
+
+      // Server-side session revocation check
+      if (tokenDenylist?.isDenied(payload.jti, payload.sub)) {
+        logAuthEvent(payload.sub || 'unknown', 'login_failed', 'failure', request, 'token-revoked');
+        response.status(401).json({ error: 'Session revoked' });
+        return;
+      }
 
       // Multi-tenant: validate issuer format + tenant whitelist
       if (!issuer && payload.iss) {
