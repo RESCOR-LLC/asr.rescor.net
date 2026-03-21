@@ -38,7 +38,8 @@ export default function ScoreDashboard({
   domainProgress,
 }: ScoreDashboardProps) {
   const progressPercent = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
-  const ratingColor = RATING_COLORS[score.rating] || brandColors.gray;
+  const notMeasured = answeredCount === 0;
+  const ratingColor = notMeasured ? brandColors.gray : (RATING_COLORS[score.rating] || brandColors.gray);
   const hasResidual = residualScore !== null && residualScore.normalized < score.normalized;
   const residualColor = hasResidual ? (RATING_COLORS[residualScore!.rating] || brandColors.gray) : ratingColor;
 
