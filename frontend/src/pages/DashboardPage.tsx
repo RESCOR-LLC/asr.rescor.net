@@ -602,7 +602,7 @@ export default function DashboardPage() {
                     <TableCell>
                       {review.rating ? (
                         <Chip
-                          label={review.rating}
+                          label={review.rskNormalized ? review.rating : 'Pending'}
                           size="small"
                           sx={{
                             minWidth: 80,

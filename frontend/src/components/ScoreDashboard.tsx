@@ -59,7 +59,7 @@ export default function ScoreDashboard({
       {/* Rating chip */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
         <Chip
-          label={score.rating}
+          label={notMeasured ? 'Pending' : score.rating}
           sx={{
             backgroundColor: ratingColor,
             color: '#fff',
