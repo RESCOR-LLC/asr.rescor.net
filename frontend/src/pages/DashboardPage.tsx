@@ -43,7 +43,8 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import { brandColors } from '../theme/theme';
 import { fetchReviews, fetchVersions, fetchQuestionnaires, createReview, renameReview, deleteReview, downloadQuestionnaireDocx, downloadQuestionnaireXlsx, downloadTenantExport, importTenantData, fetchTenants } from '../lib/apiClient';
-import type { TenantExportData, TenantImportResult, TenantSummary } from '../lib/apiClient';
+import type { TenantExportData, TenantImportResult, TenantSummary, QuestionnaireConflict } from '../lib/apiClient';
+import { ApiError } from '../lib/apiClient';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import UserMenu from '../components/UserMenu';
 import type { QuestionnaireTemplate } from '../lib/types';
@@ -136,6 +137,8 @@ export default function DashboardPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<TenantImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importConflicts, setImportConflicts] = useState<QuestionnaireConflict[] | null>(null);
+  const [importRenames, setImportRenames] = useState<Record<string, string>>({});
   const [exportLoading, setExportLoading] = useState(false);
 
   useEffect(() => {
@@ -361,6 +364,8 @@ export default function DashboardPage() {
     setImportData(null);
     setImportResult(null);
     setImportError(null);
+    setImportConflicts(null);
+    setImportRenames({});
     setImportConflictStrategy('reject');
   }
 
@@ -369,18 +374,56 @@ export default function DashboardPage() {
     setImportData(null);
     setImportResult(null);
     setImportError(null);
+    setImportConflicts(null);
+    setImportRenames({});
   }
 
   async function handleImport(): Promise<void> {
     if (!importData || !importTargetTenantId) return;
     setImportLoading(true);
     setImportError(null);
+    setImportConflicts(null);
     try {
       const result = await importTenantData(importTargetTenantId, importData, {
         conflictStrategy: importConflictStrategy,
       });
       setImportResult(result);
       // Refresh reviews after successful import
+      fetchReviews()
+        .then((data) => setReviews(data as ReviewSummary[]))
+        .catch(() => {});
+    } catch (error) {
+      if (error instanceof ApiError && error.body?.error === 'questionnaire_name_conflict') {
+        const conflicts = error.body.conflicts as QuestionnaireConflict[];
+        setImportConflicts(conflicts);
+        const defaultRenames: Record<string, string> = {};
+        for (const conflict of conflicts) {
+          defaultRenames[conflict.existingId] = `${conflict.existingName} (previous)`;
+        }
+        setImportRenames(defaultRenames);
+      } else {
+        setImportError(error instanceof Error ? error.message : 'Import failed');
+      }
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function handleRenameAndImport(): Promise<void> {
+    if (!importData || !importTargetTenantId || !importConflicts) return;
+    setImportLoading(true);
+    setImportError(null);
+    try {
+      const renames = importConflicts.map((conflict) => ({
+        existingId: conflict.existingId,
+        newName: importRenames[conflict.existingId] || `${conflict.existingName} (previous)`,
+      }));
+      const result = await importTenantData(importTargetTenantId, importData, {
+        conflictStrategy: importConflictStrategy,
+        questionnaireRenames: renames,
+      });
+      setImportResult(result);
+      setImportConflicts(null);
       fetchReviews()
         .then((data) => setReviews(data as ReviewSummary[]))
         .catch(() => {});
@@ -756,6 +799,49 @@ export default function DashboardPage() {
               </RadioGroup>
             </FormControl>
 
+            {/* Questionnaire name conflict resolution */}
+            {importConflicts && !importResult && (
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  {importConflicts.length === 1
+                    ? `A questionnaire named "${importConflicts[0].incomingName}" already exists on the target.`
+                    : `${importConflicts.length} questionnaire name conflicts detected.`}
+                </Alert>
+                {importConflicts.map((conflict) => (
+                  <Stack key={conflict.existingId} spacing={1} sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      Rename the existing <strong>{conflict.existingName}</strong> to:
+                    </Typography>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      value={importRenames[conflict.existingId] || ''}
+                      onChange={(event) =>
+                        setImportRenames((previous) => ({
+                          ...previous,
+                          [conflict.existingId]: event.target.value,
+                        }))
+                      }
+                    />
+                  </Stack>
+                ))}
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                  <Button size="small" onClick={() => setImportConflicts(null)}>
+                    Cancel Import
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={handleRenameAndImport}
+                    disabled={importLoading || importConflicts.some((c) => !importRenames[c.existingId]?.trim())}
+                    startIcon={importLoading ? <CircularProgress size={16} /> : undefined}
+                  >
+                    {importLoading ? 'Importing…' : 'Rename & Import'}
+                  </Button>
+                </Stack>
+              </Paper>
+            )}
+
             {/* Result / error */}
             {importResult && (
               <Alert severity="success">
@@ -774,7 +860,7 @@ export default function DashboardPage() {
           <Button onClick={closeImportDialog}>
             {importResult ? 'Close' : 'Cancel'}
           </Button>
-          {!importResult && (
+          {!importResult && !importConflicts && (
             <Button
               variant="contained"
               onClick={handleImport}

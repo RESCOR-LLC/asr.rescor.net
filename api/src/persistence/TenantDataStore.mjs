@@ -715,6 +715,41 @@ export class TenantDataStore {
     return { success: true, targetTenantId: tenantId, counts, warnings };
   }
 
+  // ── Questionnaire name conflict detection ──────────────────────
+
+  async checkQuestionnaireConflicts(globalNodes) {
+    if (!globalNodes?.questionnaires?.length) return [];
+    const incoming = globalNodes.questionnaires;
+    const existing = await this.database.query(
+      `MATCH (q:Questionnaire) RETURN q.questionnaireId AS id, q.name AS name`
+    );
+    const conflicts = [];
+    for (const inc of incoming) {
+      const match = existing.find(
+        (e) => e.name === inc.name && e.id !== inc.questionnaireId
+      );
+      if (match) {
+        conflicts.push({
+          incomingName: inc.name,
+          incomingId: inc.questionnaireId,
+          existingName: match.name,
+          existingId: match.id,
+        });
+      }
+    }
+    return conflicts;
+  }
+
+  async applyQuestionnaireRenames(renames) {
+    for (const { existingId, newName } of renames) {
+      await this.database.query(
+        `MATCH (q:Questionnaire {questionnaireId: $id})
+         SET q.name = $newName, q.updated = $now`,
+        { id: existingId, newName, now: new Date().toISOString() }
+      );
+    }
+  }
+
   // ── Export global questionnaire structure ────────────────────────
 
   async _exportGlobalQuestionnaireNodes() {

@@ -48,6 +48,18 @@ async function authHeaders(): Promise<Record<string, string>> {
 // Shared response handler — throws on non-2xx status
 // ────────────────────────────────────────────────────────────────────
 
+export class ApiError extends Error {
+  status: number;
+  body: Record<string, unknown> | null;
+
+  constructor(message: string, status: number, body: Record<string, unknown> | null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function handleResponse(response: Response): Promise<unknown> {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
@@ -55,7 +67,7 @@ async function handleResponse(response: Response): Promise<unknown> {
       body && typeof body === 'object' && 'error' in body
         ? String((body as Record<string, unknown>).error)
         : `HTTP ${response.status}`;
-    throw new Error(serverMessage);
+    throw new ApiError(serverMessage, response.status, body as Record<string, unknown> | null);
   }
   return body;
 }
@@ -663,6 +675,18 @@ export interface TenantImportResult {
   warnings: string[];
 }
 
+export interface QuestionnaireConflict {
+  incomingName: string;
+  incomingId: string;
+  existingName: string;
+  existingId: string;
+}
+
+export interface QuestionnaireRename {
+  existingId: string;
+  newName: string;
+}
+
 export interface TenantSummary {
   tenantId: string;
   name: string;
@@ -689,11 +713,14 @@ export async function downloadTenantExport(tenantId: string): Promise<void> {
 export async function importTenantData(
   tenantId: string,
   exportData: TenantExportData,
-  options?: { conflictStrategy?: string; regenerateIds?: boolean },
+  options?: { conflictStrategy?: string; regenerateIds?: boolean; questionnaireRenames?: QuestionnaireRename[] },
 ): Promise<TenantImportResult> {
   const query = new URLSearchParams();
   if (options?.conflictStrategy) query.set('conflictStrategy', options.conflictStrategy);
   if (options?.regenerateIds) query.set('regenerateIds', 'true');
+  if (options?.questionnaireRenames?.length) {
+    query.set('questionnaireRenames', JSON.stringify(options.questionnaireRenames));
+  }
   const queryString = query.toString();
 
   const response = await fetch(

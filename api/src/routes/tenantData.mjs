@@ -71,10 +71,35 @@ export function createTenantDataRouter(database, auditEventStore = null) {
       if (!exportData?.manifest?.formatVersion) {
         statusCode = 400;
         body = { error: 'Invalid export file: missing manifest.formatVersion' };
-      } else if (exportData.manifest.formatVersion !== 1) {
+      } else if (![1, 2].includes(exportData.manifest.formatVersion)) {
         statusCode = 400;
         body = { error: `Unsupported format version: ${exportData.manifest.formatVersion}` };
       } else {
+        // Check for questionnaire name conflicts before importing
+        let questionnaireRenames = null;
+        const rawRenames = request.query.questionnaireRenames;
+        if (rawRenames) {
+          try {
+            questionnaireRenames = JSON.parse(rawRenames);
+          } catch {
+            statusCode = 400;
+            body = { error: 'Invalid questionnaireRenames JSON' };
+            response.status(statusCode).json(body);
+            return;
+          }
+        }
+
+        const conflicts = await tenantDataStore.checkQuestionnaireConflicts(exportData.globalNodes);
+        if (conflicts.length > 0 && !questionnaireRenames) {
+          statusCode = 409;
+          body = { error: 'questionnaire_name_conflict', conflicts };
+          response.status(statusCode).json(body);
+          return;
+        }
+        if (questionnaireRenames?.length > 0) {
+          await tenantDataStore.applyQuestionnaireRenames(questionnaireRenames);
+        }
+
         const importResult = await tenantDataStore.importTenantData(
           tenantId,
           exportData,
