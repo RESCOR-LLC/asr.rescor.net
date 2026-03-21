@@ -90,4 +90,89 @@ export class TenantStore {
 
     return result.length > 0 ? (result[0].t || result[0]) : null;
   }
+
+  /**
+   * Hard purge all data for a tenant:
+   *   1. Delete Reviews and all child nodes (Answers, ProposedChanges,
+   *      AuditorComments, Remediations, GateDecisions) + relationships
+   *   2. Delete tenant-scoped ScoringConfig
+   *   3. Delete tenant-scoped QuestionnaireSnapshots
+   *   4. Delete tenant-scoped ComplianceTagConfig
+   *   5. Delete Users belonging to the tenant
+   *   6. Delete AuditEvent / AuthEvent nodes tied to the tenant
+   *   7. Delete the Tenant node itself
+   *
+   * Returns { deleted: true, counts } or null if tenant not found.
+   * CAUTION: irreversible — caller must verify authorization and intent.
+   */
+  async purgeTenant(tenantId) {
+    const tenantCheck = await this.database.query(
+      `MATCH (t:Tenant {tenantId: $tenantId}) RETURN t.name AS name`,
+      { tenantId },
+    );
+    if (tenantCheck.length === 0) return null;
+
+    // 1. Reviews + all child nodes
+    const reviewResult = await this.database.query(
+      `MATCH (r:Review)-[:SCOPED_TO]->(:Tenant {tenantId: $tenantId})
+       OPTIONAL MATCH (r)-[*1..2]->(child)
+       DETACH DELETE child, r
+       RETURN count(DISTINCT r) AS reviewsDeleted`,
+      { tenantId },
+    );
+
+    // 2. ScoringConfig
+    await this.database.query(
+      `MATCH (sc:ScoringConfig {tenantId: $tenantId}) DETACH DELETE sc`,
+      { tenantId },
+    );
+
+    // 3. QuestionnaireSnapshots
+    await this.database.query(
+      `MATCH (qs:QuestionnaireSnapshot {tenantId: $tenantId}) DETACH DELETE qs`,
+      { tenantId },
+    );
+
+    // 4. ComplianceTagConfig
+    await this.database.query(
+      `MATCH (ctc:ComplianceTagConfig {tenantId: $tenantId}) DETACH DELETE ctc`,
+      { tenantId },
+    );
+
+    // 5. Users
+    const userResult = await this.database.query(
+      `MATCH (u:User)-[:BELONGS_TO]->(:Tenant {tenantId: $tenantId})
+       OPTIONAL MATCH (u)-[rel]-()
+       DELETE rel, u
+       RETURN count(DISTINCT u) AS usersDeleted`,
+      { tenantId },
+    );
+
+    // 6. AuditEvent + AuthEvent
+    await this.database.query(
+      `MATCH (ae:AuditEvent {tenantId: $tenantId}) DETACH DELETE ae`,
+      { tenantId },
+    );
+    await this.database.query(
+      `MATCH (ae:AuthEvent {tenantId: $tenantId}) DETACH DELETE ae`,
+      { tenantId },
+    );
+
+    // 7. Tenant node
+    await this.database.query(
+      `MATCH (t:Tenant {tenantId: $tenantId}) DETACH DELETE t`,
+      { tenantId },
+    );
+
+    const reviewsDeleted = reviewResult[0]?.reviewsDeleted;
+    const usersDeleted = userResult[0]?.usersDeleted;
+
+    return {
+      deleted: true,
+      counts: {
+        reviews: typeof reviewsDeleted?.toNumber === 'function' ? reviewsDeleted.toNumber() : Number(reviewsDeleted ?? 0),
+        users: typeof usersDeleted?.toNumber === 'function' ? usersDeleted.toNumber() : Number(usersDeleted ?? 0),
+      },
+    };
+  }
 }

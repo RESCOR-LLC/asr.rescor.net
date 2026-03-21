@@ -345,5 +345,60 @@ export function createAdminRouter(database, userStore, authEventStore, auditEven
     response.status(statusCode).json(body);
   });
 
+  // ── Hard-purge tenant (irreversible) ──────────────────────────────
+  router.delete('/tenants/:tenantId/purge', async (request, response) => {
+    let statusCode = 200;
+    let body = null;
+
+    try {
+      const targetTenantId = request.params.tenantId;
+      const confirm = request.query.confirm;
+
+      if (confirm !== 'yes') {
+        statusCode = 400;
+        body = { error: 'Purge requires ?confirm=yes query parameter' };
+        response.status(statusCode).json(body);
+        return;
+      }
+
+      recorder?.emit(9162, 'w', 'Tenant purge initiated', {
+        targetTenantId,
+        initiatedBy: request.user?.sub,
+      });
+
+      const result = await tenantStore.purgeTenant(targetTenantId);
+
+      if (!result) {
+        statusCode = 404;
+        body = { error: 'Tenant not found' };
+      } else {
+        body = { tenantId: targetTenantId, purged: true, counts: result.counts };
+
+        recorder?.emit(9163, 'w', 'Tenant purged', {
+          targetTenantId, counts: result.counts,
+        });
+
+        if (auditEventStore) {
+          auditEventStore.logEvent({
+            tenantId:     request.user?.tenantId || null,
+            sub:          request.user?.sub,
+            action:       'tenant.purge',
+            resourceType: 'Tenant',
+            resourceId:   targetTenantId,
+            ipAddress:    request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip || null,
+            userAgent:    request.headers['user-agent'] || null,
+            meta:         JSON.stringify(result.counts),
+          });
+        }
+      }
+    } catch (error) {
+      statusCode = 500;
+      recorder?.emit(9164, 'e', 'Failed to purge tenant', { error: error.message });
+      body = { error: 'Internal server error' };
+    }
+
+    response.status(statusCode).json(body);
+  });
+
   return router;
 }
