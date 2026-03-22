@@ -124,6 +124,38 @@ Neo4j Enterprise Edition supports native TDE. If the platform migrates to Enterp
 
 ---
 
+## Backup Isolation
+
+### Per-Tenant Backup Strategy
+
+Neo4j Community Edition does not support database-per-tenant. All tenants share one graph. Backup isolation options:
+
+1. **Full-graph encrypted backup** (current recommendation)
+   - `neo4j-admin database dump neo4j --to-stdout | gpg --encrypt --recipient ops@rescor.net > backup-$(date +%Y%m%d).dump.gpg`
+   - Store on LUKS volume or encrypted S3 bucket
+   - Single backup contains all tenants — access controlled by GPG key
+
+2. **Per-tenant data export** (for tenant-specific portability)
+   - Use `GET /api/admin/tenants/:tenantId/export` endpoint
+   - Produces JSON with reviews, answers, config — scoped to one tenant
+   - Encrypt before offsite transfer: `gpg --encrypt --recipient <tenant> export.json`
+
+3. **Backup retention**
+   - Daily backups, 30-day retention on encrypted storage
+   - Monthly backups, 12-month retention
+   - Test restore quarterly
+
+### Isolation Guarantees
+
+| Layer | Guarantee |
+|-------|-----------|
+| LUKS volume | All data encrypted at rest; key required to mount |
+| GPG backup | Backup file encrypted; GPG key required to decrypt |
+| Tenant export | Contains only one tenant's data; safe for handoff |
+| APOC TTL | Auth/Audit events auto-purge after 90 days |
+
+---
+
 ## References
 
 - [cryptsetup manual](https://man7.org/linux/man-pages/man8/cryptsetup.8.html)

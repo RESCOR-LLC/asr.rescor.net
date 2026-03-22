@@ -44,7 +44,7 @@ This document evaluates the application platform against:
 | 2.1 Isolation model selected | **MET** | Shared-graph (multi-tenant) with designed database-per-tenant option |
 | 2.2 Row-level tenant filtering | **MET** | All query MATCH/WHERE clauses include `tenantId` filter |
 | 2.3 ORM/application-layer tenant enforcement | **MET** | `ReviewStore.verifyReviewTenant()` + tenant WHERE clauses in all stores |
-| 2.4 Fail-closed on missing context | **PARTIAL** | Most routes fail closed; no global middleware enforces this universally |
+| 2.4 Fail-closed on missing context | **MET** | `requireTenantContext` middleware rejects all requests without `tenantId` on tenant-scoped routes; blocks OFFBOARDING tenants |
 
 **Remaining gaps**: Cypher query interception middleware (Group E); single-tenant deployment mode wiring (Group E).
 
@@ -105,13 +105,13 @@ This document evaluates the application platform against:
 |---------|--------|----------|
 | 7.1 Secure provisioning | **MET** | `TenantStore.createTenant()` + `POST /api/admin/tenants` |
 | 7.2 Unique keys per tenant | **N/A** | No per-tenant encryption keys (Neo4j Community, no TDE) |
-| 7.3 Complete data deletion on offboarding | **GAP** | Soft-delete done; hard purge (`purgeTenant`) is a stub |
+| 7.3 Complete data deletion on offboarding | **MET** | `TenantStore.purgeTenant()` deletes all tenant-scoped data; `DELETE /api/admin/tenants/:id/purge?confirm=yes` |
 | 7.4 Audit trail of provisioning | **MET** | `tenant.create` / `tenant.delete` fired to `AuditEventStore` |
 | 7.5 Data export for portability | **PARTIAL** | Review export (DOCX/XLSX) exists; tenant-wide export via `/export` route; no full cross-entity export |
-| 7.6 Prevent operations during offboarding | **GAP** | No `OFFBOARDING` status blocking new operations |
-| 7.7 Revoke access during offboarding | **GAP** | No session/key revocation workflow |
-| 7.8 Data retention periods | **PARTIAL** | AuthEvent: 90-day APOC TTL; AuditEvent: no TTL yet |
-| 7.9 Clean up failed provisioning | **GAP** | No rollback on partial provisioning failure |
+| 7.6 Prevent operations during offboarding | **MET** | `TenantStore.setOffboarding()` sets status=OFFBOARDING; `requireTenantContext` middleware blocks all tenant-scoped operations during offboarding |
+| 7.7 Revoke access during offboarding | **MET** | `TokenDenylist.revokeUser(sub)` revokes all active sessions; `POST /api/admin/revoke-sessions/:sub` |
+| 7.8 Data retention periods | **MET** | AuthEvent 90-day APOC TTL (`012-apoc-ttl.cypher`); AuditEvent 90-day APOC TTL (`014-audit-ttl.cypher`) |
+| 7.9 Clean up failed provisioning | **MET** | `TenantStore.createTenant()` wraps steps 2–3 in try/catch with rollback that cleans up ScoringConfig, QuestionnaireSnapshot, and Tenant nodes |
 
 ---
 
@@ -122,9 +122,9 @@ This document evaluates the application platform against:
 | 8.1 Tenant context in log entries | **MET** | `tenantId` on every AuthEvent and AuditEvent node |
 | 8.2 Tenant-isolated audit trails | **MET** | `GET /admin/audit-events` scoped to requesting admin's tenant |
 | 8.3 Cross-tenant access monitoring | **MET** | `verifyReviewTenant()` null hits logged as `review.cross_tenant_attempt` |
-| 8.4 Alerts for isolation violations | **GAP** | No alerting system — events stored but no proactive notification |
-| 8.5 Tenant-specific retention policies | **PARTIAL** | AuthEvent 90-day TTL; AuditEvent TTL outstanding |
-| 8.6 Structured severity levels | **PARTIAL** | Auth events have `outcome` + `reason`; no formal severity classification |
+| 8.4 Alerts for isolation violations | **MET** | `SecurityMonitor` checks every 5 min for brute-force, cross-tenant denials, credential stuffing; Recorder event codes 9050–9054 |
+| 8.5 Tenant-specific retention policies | **MET** | AuthEvent + AuditEvent both have 90-day APOC TTL |
+| 8.6 Structured severity levels | **MET** | Recorder severity codes i/d/w/e/s/t; event codes 9000–9239 across all API modules |
 | 8.7 Audit log access restricted | **MET** | Admin-only endpoints; tenant-scoped queries |
 
 ---
@@ -133,14 +133,14 @@ This document evaluates the application platform against:
 
 | Control | Rating | Evidence |
 |---------|--------|----------|
-| Encryption at rest | **GAP** | Neo4j Community — no TDE; host-level LUKS not confirmed |
+| Encryption at rest | **PARTIAL** | LUKS operational guide published (`docs/ENCRYPTION-AT-REST.md`); not confirmed deployed on production host |
 | Encryption in transit | **MET** | Production: `bolt+s://`; dev: `bolt://` (intentional) |
 | Authentication | **MET** | Neo4j auth enabled; Infisical-managed in prod |
 | Authorization (RBAC) | **N/A** | Community Edition — single user |
 | Port security | **MET** | Ports bound to `127.0.0.1` in UAT/prod |
 | Parameterized queries | **MET** | All 100+ Cypher queries use `$param` syntax |
 | APOC whitelisting | **MET** | Only `apoc.ttl.*` unrestricted |
-| Backup isolation | **GAP** | No per-tenant backup strategy |
+| Backup isolation | **PARTIAL** | Backup isolation strategy documented + per-tenant export endpoint exists; not yet automated |
 
 ---
 
@@ -157,7 +157,7 @@ This document evaluates the application platform against:
 | Role-based access control | **MET** | `authorize(...roles)` middleware; 4 roles: admin, reviewer, user, auditor |
 | Separation of duties | **MET** | Assessor cannot accept own risk (`remediation.mjs:598-619`) |
 | Defence-in-depth authorization | **MET** | 7 layers: authn → role → handler-role → ownership → tenant isolation → Cypher-level → audit trail |
-| Session invalidation on logout | **PARTIAL** | MSAL clears local tokens; no server-side JWT revocation mechanism |
+| Session invalidation on logout | **MET** | MSAL clears local tokens; `TokenDenylist` provides server-side revocation; admin revoke endpoint |
 
 ---
 
@@ -165,14 +165,14 @@ This document evaluates the application platform against:
 
 | Control | Rating | Evidence |
 |---------|--------|----------|
-| Sensitive data classification | **PARTIAL** | No formal data classification doc; PII (email, display name, IP) stored in Neo4j |
-| Encryption at rest | **GAP** | Neo4j Community has no TDE; host-level encryption not confirmed |
+| Sensitive data classification | **MET** | `docs/DATA-CLASSIFICATION.md` PII inventory and retention policies |
+| Encryption at rest | **PARTIAL** | LUKS guide published; not confirmed deployed |
 | Encryption in transit / TLS | **MET** | bolt+s:// for Neo4j prod; HTTPS for Entra ID, Infisical, MSAL |
-| HSTS header | **GAP** | Not set in nginx config or Express |
+| HSTS header | **MET** | nginx `Strict-Transport-Security: max-age=63072000; includeSubDomains`; helmet sets HSTS on Express |
 | Hashing algorithms | **MET** | All hashing uses SHA-256; zero MD5/SHA-1 |
 | Hardcoded secrets | **PARTIAL** | Dev-only `asrdev123` fallback in `database.mjs:104`; production uses Infisical |
 | API key storage | **MET** | `randomBytes(32)` + SHA-256 hash-only storage; plaintext returned once |
-| Security headers (Express) | **GAP** | No `helmet` middleware; no `app.disable('x-powered-by')` |
+| Security headers (Express) | **MET** | `helmet` middleware in `server.mjs` (X-Powered-By removed, HSTS, X-Content-Type-Options, etc.) |
 
 ---
 
@@ -183,7 +183,7 @@ This document evaluates the application platform against:
 | Cypher injection | **MET** | All 100+ queries fully parameterized; template literals used only for hardcoded structural clauses |
 | Command injection | **MET** | Zero `eval()`, `Function()`, `child_process.exec()` in app code |
 | XSS (frontend) | **MET** | Zero `dangerouslySetInnerHTML`/`innerHTML`; React 19 auto-escaping |
-| Input validation | **PARTIAL** | Parameterized queries prevent injection; some endpoints lack type/length validation on body fields (defence-in-depth gap, not injection vulnerability) |
+| Input validation | **PARTIAL** | Parameterized Cypher queries prevent injection; body schema validation not implemented (defence-in-depth gap, not exploitable) |
 | JSON.parse safety | **MET** | All instances either parse stored data or have try/catch error handling |
 
 ---
@@ -192,10 +192,10 @@ This document evaluates the application platform against:
 
 | Control | Rating | Evidence |
 |---------|--------|----------|
-| Threat modeling | **PARTIAL** | Multi-tenant gap analysis + RBAC plan exist; no formal STRIDE/attack-tree |
+| Threat modeling | **MET** | `docs/STRIDE-THREAT-MODEL.md` — 40 threats across 7 components, 0 high-risk |
 | Business logic flaws | **MET** | Ownership checks, tenant isolation, SoD on risk acceptance, proposed-changes workflow |
 | Defence-in-depth authz | **MET** | 7+ authorization layers |
-| Security tests | **GAP** | Zero test files, no test framework, no CI/CD pipeline |
+| Security tests | **MET** | vitest suite with 33 tests (RBAC, tenant isolation, error sanitization, security headers); GitHub Actions CI |
 
 ---
 
@@ -203,11 +203,11 @@ This document evaluates the application platform against:
 
 | Control | Rating | Evidence |
 |---------|--------|----------|
-| Nginx security headers | **PARTIAL** | Has `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`. Missing: `Content-Security-Policy`, `Strict-Transport-Security`, `Permissions-Policy` |
-| Express security config | **GAP** | No `helmet`; `error.message` leaked in 60+ catch blocks; no global error handler |
+| Nginx security headers | **MET** | HSTS, CSP, Permissions-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, server_tokens off |
+| Express security config | **MET** | `helmet` middleware; Recorder + sanitized 62 catch blocks; global error handler |
 | Docker port restrictions | **MET** | UAT/prod: all ports bound to `127.0.0.1` |
 | Debug/test routes | **MET** | No debug routes. Minor: `/api/health` exposes STORM `baseUrl` |
-| Technology fingerprinting | **PARTIAL** | Missing `app.disable('x-powered-by')` and nginx `server_tokens off` |
+| Technology fingerprinting | **MET** | helmet removes X-Powered-By; nginx server_tokens off |
 
 ---
 
@@ -216,7 +216,7 @@ This document evaluates the application platform against:
 | Control | Rating | Evidence |
 |---------|--------|----------|
 | Dependency versions | **MET** | All packages appear current (Express 4.21, React 19.2, jose 6.2, neo4j-driver 5.28) |
-| SCA tooling | **GAP** | No Dependabot, Snyk, Renovate, npm audit, or any automated supply chain scanning |
+| SCA tooling | **MET** | `.github/dependabot.yml` configured for api/ and frontend/ workspaces |
 
 ---
 
@@ -226,7 +226,7 @@ This document evaluates the application platform against:
 |---------|--------|----------|
 | Authentication flow | **MET** | Entra ID JWKS validation + service account SHA-256 hash lookup |
 | Brute-force protection | **MET** | `authLimiter`: 20 req/15 min per IP; `apiLimiter`: 300 req/min per tenant |
-| Session management | **PARTIAL** | JWT expiry enforced; MSAL silent refresh; no server-side revocation |
+| Session management | **MET** | JWT expiry enforced; MSAL refresh; TokenDenylist for server-side revocation |
 | Default credentials | **PARTIAL** | Dev bypass guarded by `NODE_ENV !== 'production'` + localhost check |
 | Service account key security | **MET** | `randomBytes(32)` + SHA-256 hash-only; admin-only CRUD; audit trail |
 | MFA | **PARTIAL** | Delegated to Entra ID Conditional Access; app cannot enforce directly |
@@ -239,7 +239,7 @@ This document evaluates the application platform against:
 |---------|--------|----------|
 | Dependency verification | **MET** | `package-lock.json` exists for deterministic installs |
 | Unsafe deserialization | **MET** | `js-yaml` v4.x safe default schema; `JSON.parse` is safe against code execution |
-| CI/CD pipeline security | **GAP** | No CI/CD configuration; manual deployment via docker cp |
+| CI/CD pipeline security | **MET** | `.github/workflows/ci.yml` — type-check, build, test, dependency audit |
 
 ---
 
@@ -250,10 +250,10 @@ This document evaluates the application platform against:
 | Auth event logging | **MET** | All login success/failure variants logged with tenant, IP, user-agent, reason |
 | Data mutation audit trail | **MET** | `AuditEventStore` covers reviews, answers, roles, tenants, service accounts, import/export |
 | Cross-tenant access logging | **MET** | `review.cross_tenant_attempt` events |
-| 403 authorization failure logging | **GAP** | `authorize()` middleware returns 403 but does NOT log to AuditEventStore |
-| Structured logs for SIEM | **PARTIAL** | Neo4j events structured; console output is unstructured plain text |
-| Alerting on security events | **GAP** | No proactive alerting; events stored but not monitored |
-| Log injection protection | **PARTIAL** | Cypher-parameterized DB logs safe; console output unprotected |
+| 403 authorization failure logging | **MET** | `authorize.mjs` logs to Recorder (9010/9011) + AuditEventStore |
+| Structured logs for SIEM | **MET** | Recorder with severity codes + event numbers throughout; console.* replaced in all runtime code |
+| Alerting on security events | **MET** | SecurityMonitor (brute-force, cross-tenant, credential stuffing checks every 5 min) |
+| Log injection protection | **MET** | Recorder handles all runtime logging; CLI scripts (setupDatabase, configureFromYaml) use console but are not network-exposed |
 
 ---
 
@@ -277,19 +277,19 @@ This document evaluates the application platform against:
 | MT-4 | Cache Isolation | **MET/N/A** | No external cache; in-memory cache properly keyed |
 | MT-5 | API Rate Limiting | **MET** | Fully resolved |
 | MT-6 | File Storage | **N/A** | No file storage |
-| MT-7 | Onboarding/Offboarding | **PARTIAL** | Hard purge, offboarding status, access revocation, failed provisioning rollback |
-| MT-8 | Logging & Audit | **MET** | Alerting system outstanding; AuditEvent TTL deferred |
-| A01 | Broken Access Control | **MET** | No server-side session revocation |
-| A02 | Cryptographic Failures | **PARTIAL** | No EAR, no HSTS, no helmet |
+| MT-7 | Onboarding/Offboarding | **MET** | Data export partial (no full cross-entity export) |
+| MT-8 | Logging & Audit | **MET** | Fully resolved |
+| A01 | Broken Access Control | **MET** | Fully resolved |
+| A02 | Cryptographic Failures | **PARTIAL** | EAR not confirmed deployed; dev credentials by design |
 | A03 | Injection | **MET** | All queries parameterized; React auto-escaping |
-| A04 | Insecure Design | **PARTIAL** | No security tests; no formal threat model |
-| A05 | Security Misconfiguration | **PARTIAL** | Missing CSP/HSTS/helmet; error.message leakage; fingerprinting |
-| A06 | Vulnerable Components | **PARTIAL** | Dependencies current; no SCA tooling |
-| A07 | Auth Failures | **MET** | MFA via Entra ID delegation; JWT revocation limitation inherent |
-| A08 | Data Integrity Failures | **PARTIAL** | No CI/CD pipeline |
-| A09 | Logging & Monitoring | **PARTIAL** | No alerting; 403s not logged; console logs unstructured |
+| A04 | Insecure Design | **MET** | Threat model + security tests complete |
+| A05 | Security Misconfiguration | **MET** | All headers, helmet, error handling, fingerprinting resolved |
+| A06 | Vulnerable Components | **MET** | Dependencies current; Dependabot enabled |
+| A07 | Auth Failures | **MET** | MFA via Entra ID delegation (PARTIAL by design); session revocation complete |
+| A08 | Data Integrity Failures | **MET** | CI/CD pipeline + dependency verification |
+| A09 | Logging & Monitoring | **MET** | Alerting, structured logging, 403 logging all resolved |
 | A10 | SSRF | **MET** | No user-controlled outbound requests |
-| Neo4j | Database Security | **PARTIAL** | No EAR; no backup isolation |
+| Neo4j | Database Security | **PARTIAL** | EAR not confirmed deployed; backup not automated |
 
 ---
 
