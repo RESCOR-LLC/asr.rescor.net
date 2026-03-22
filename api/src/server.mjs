@@ -20,6 +20,7 @@ import { createExportRouter } from './routes/exportDocuments.mjs';
 import { StormService } from './StormService.mjs';
 import { createAuthenticationMiddleware } from './middleware/authenticate.mjs';
 import { authorize, initializeAuthorization } from './middleware/authorize.mjs';
+import { requireTenantContext, initializeTenantContext } from './middleware/requireTenantContext.mjs';
 import { authLimiter, apiLimiter } from './middleware/rateLimiter.mjs';
 import { UserStore } from './persistence/UserStore.mjs';
 import { AuthEventStore } from './persistence/AuthEventStore.mjs';
@@ -67,6 +68,7 @@ async function bootstrap() {
   const serviceAccountStore = new ServiceAccountStore(database);
 
   initializeAuthorization({ recorder, auditEventStore });
+  initializeTenantContext({ recorder, tenantStore });
 
   const stormService = await StormService.create({ configuration });
 
@@ -78,7 +80,7 @@ async function bootstrap() {
   const isDevelopment = process.env.NODE_ENV !== 'production';
   const tokenDenylist = new TokenDenylist();
 
-  const authenticate = createAuthenticationMiddleware({ isDevelopment, tenantId, clientId, userStore, allowedTenants, authEventStore, serviceAccountStore, tokenDenylist });
+  const authenticate = createAuthenticationMiddleware({ isDevelopment, tenantId, clientId, userStore, allowedTenants, authEventStore, serviceAccountStore, tokenDenylist, recorder });
 
   // Health check (unauthenticated)
   application.get('/api/health', (_request, response) => {
@@ -106,11 +108,11 @@ async function bootstrap() {
 
   // Mount routes — config is public (read), reviews + answers gated
   application.use('/api/config', createConfigRouter(database, recorder));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database, auditEventStore, recorder));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database, stormService, auditEventStore, recorder));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database, auditEventStore, recorder));
-  application.use('/api/reviews', authorize('admin', 'auditor'), createAuditorCommentsRouter(database, auditEventStore, recorder));
-  application.use('/api/reviews', authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', requireTenantContext, authorize('admin', 'reviewer', 'user', 'auditor'), createReviewsRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', requireTenantContext, authorize('admin', 'reviewer', 'user', 'auditor'), createAnswersRouter(database, stormService, auditEventStore, recorder));
+  application.use('/api/reviews', requireTenantContext, authorize('admin', 'reviewer', 'user'), createProposedChangesRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', requireTenantContext, authorize('admin', 'auditor'), createAuditorCommentsRouter(database, auditEventStore, recorder));
+  application.use('/api/reviews', requireTenantContext, authorize('admin', 'reviewer', 'user', 'auditor'), createRemediationRouter(database, auditEventStore, recorder));
   application.use('/api/admin', authorize('admin'), createAdminRouter(database, userStore, authEventStore, auditEventStore, tenantStore, recorder));
 
   // ── Session revocation (requires tokenDenylist, admin-only) ─────

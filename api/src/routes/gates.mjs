@@ -221,7 +221,6 @@ export function createGateRouter(database, stormService, auditEventStore = null,
           preFilled,
         };
       } catch (error) {
-        console.error('[gates] PUT error:', error);
         recorder?.emit(9202, 'e', 'Failed to save gate answer', { error: error.message });
         statusCode = 500;
         body = { error: 'Internal server error' };

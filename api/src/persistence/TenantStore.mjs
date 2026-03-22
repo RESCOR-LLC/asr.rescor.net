@@ -22,31 +22,49 @@ export class TenantStore {
        SET t.name    = $name,
            t.domain  = $domain,
            t.active  = true,
+           t.status  = 'ACTIVE',
            t.created = $now`,
       { tenantId, name, domain: domain || null, now }
     );
 
-    // 2. Clone ScoringConfig from default — idempotent via MERGE
-    await this.database.query(
-      `MATCH (src:ScoringConfig {configId: 'default'})
-       MERGE (dst:ScoringConfig {tenantId: $tenantId})
-       ON CREATE SET dst.dampingFactor    = src.dampingFactor,
-                     dst.rawMax           = src.rawMax,
-                     dst.ratingThresholds = src.ratingThresholds,
-                     dst.ratingLabels     = src.ratingLabels,
-                     dst.configId         = $tenantId`,
-      { tenantId }
-    );
+    try {
+      // 2. Clone ScoringConfig from default — idempotent via MERGE
+      await this.database.query(
+        `MATCH (src:ScoringConfig {configId: 'default'})
+         MERGE (dst:ScoringConfig {tenantId: $tenantId})
+         ON CREATE SET dst.dampingFactor    = src.dampingFactor,
+                       dst.rawMax           = src.rawMax,
+                       dst.ratingThresholds = src.ratingThresholds,
+                       dst.ratingLabels     = src.ratingLabels,
+                       dst.configId         = $tenantId`,
+        { tenantId }
+      );
 
-    // 3. Clone current QuestionnaireSnapshot — idempotent via MERGE
-    await this.database.query(
-      `MATCH (q:Questionnaire {active: true})-[:CURRENT_VERSION]->(snap:QuestionnaireSnapshot)
-       MERGE (copy:QuestionnaireSnapshot {version: snap.version, tenantId: $tenantId})
-       ON CREATE SET copy.label   = snap.label,
-                     copy.data    = snap.data,
-                     copy.created = snap.created`,
-      { tenantId }
-    );
+      // 3. Clone current QuestionnaireSnapshot — idempotent via MERGE
+      await this.database.query(
+        `MATCH (q:Questionnaire {active: true})-[:CURRENT_VERSION]->(snap:QuestionnaireSnapshot)
+         MERGE (copy:QuestionnaireSnapshot {version: snap.version, tenantId: $tenantId})
+         ON CREATE SET copy.label   = snap.label,
+                       copy.data    = snap.data,
+                       copy.created = snap.created`,
+        { tenantId }
+      );
+    } catch (error) {
+      // Rollback: remove partially provisioned tenant data
+      await this.database.query(
+        `MATCH (sc:ScoringConfig {tenantId: $tenantId}) DETACH DELETE sc`,
+        { tenantId },
+      ).catch(() => {});
+      await this.database.query(
+        `MATCH (qs:QuestionnaireSnapshot {tenantId: $tenantId}) DETACH DELETE qs`,
+        { tenantId },
+      ).catch(() => {});
+      await this.database.query(
+        `MATCH (t:Tenant {tenantId: $tenantId}) DETACH DELETE t`,
+        { tenantId },
+      ).catch(() => {});
+      throw error;
+    }
   }
 
   /**
@@ -89,6 +107,33 @@ export class TenantStore {
     );
 
     return result.length > 0 ? (result[0].t || result[0]) : null;
+  }
+
+  /**
+   * Set tenant status to OFFBOARDING.  Blocks all non-admin operations
+   * for this tenant (checked by requireActiveTenant middleware or route
+   * guards).  Reversible — set active=true to restore.
+   */
+  async setOffboarding(tenantId) {
+    const result = await this.database.query(
+      `MATCH (t:Tenant {tenantId: $tenantId})
+       SET t.active = false, t.status = 'OFFBOARDING'
+       RETURN t.tenantId AS tenantId, t.status AS status`,
+      { tenantId },
+    );
+    return result.length > 0 ? result[0] : null;
+  }
+
+  /**
+   * Check tenant status. Returns { active, status } or null.
+   */
+  async getTenantStatus(tenantId) {
+    const rows = await this.database.query(
+      `MATCH (t:Tenant {tenantId: $tenantId})
+       RETURN t.active AS active, t.status AS status`,
+      { tenantId },
+    );
+    return rows.length > 0 ? rows[0] : null;
   }
 
   /**
