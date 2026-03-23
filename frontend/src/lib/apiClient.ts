@@ -72,6 +72,14 @@ export class ApiError extends Error {
 async function handleResponse(response: Response): Promise<unknown> {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
+    // 401 from the API means our token is expired or invalid.
+    // Force a fresh login instead of showing a broken UI.
+    if (response.status === 401 && isMsalConfigured) {
+      console.warn('[asr] API returned 401 — redirecting to login');
+      await msalInstance.acquireTokenRedirect({ scopes: apiScopes });
+      // acquireTokenRedirect navigates away — execution stops here
+    }
+
     const serverMessage =
       body && typeof body === 'object' && 'error' in body
         ? String((body as Record<string, unknown>).error)
