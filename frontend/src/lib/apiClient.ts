@@ -2,12 +2,13 @@
 // ASR API Client
 // ════════════════════════════════════════════════════════════════════
 
+import { InteractionRequiredAuthError } from '@azure/msal-browser';
 import { msalInstance, apiScopes, isMsalConfigured } from './authConfig';
 
 const BASE_URL = '/api';
 
 // ────────────────────────────────────────────────────────────────────
-// getAccessToken — acquire token silently from MSAL cache
+// getAccessToken — acquire token silently, redirect on failure
 // ────────────────────────────────────────────────────────────────────
 
 async function getAccessToken(): Promise<string | null> {
@@ -22,8 +23,16 @@ async function getAccessToken(): Promise<string | null> {
           account: accounts[0],
         });
         result = tokenResponse.accessToken;
-      } catch {
-        // Silent acquisition failed — token will be null
+      } catch (error) {
+        // Silent renewal failed (expired token, blocked iframe, etc.)
+        // Redirect to Entra login to get a fresh token.
+        if (error instanceof InteractionRequiredAuthError
+            || (error as Error)?.name === 'BrowserAuthError') {
+          console.warn('[asr] Silent token renewal failed, redirecting to login');
+          await msalInstance.acquireTokenRedirect({ scopes: apiScopes });
+          // acquireTokenRedirect navigates away — execution stops here
+        }
+        // Other errors — return null, API call will get 401
       }
     }
   }
