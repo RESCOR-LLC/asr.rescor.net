@@ -307,7 +307,7 @@ function addDomainRows(
       cell.border = thinBorder;
     });
 
-    // Weight tier fill on the Weight Tier cell (col 5)
+    // Weight tier fill on the Weight Tier cell (column 5)
     const tierFill = COLORS.weightTier[question.weightTier];
     if (tierFill) {
       row.getCell(5).fill = {
@@ -317,7 +317,7 @@ function addDomainRows(
       };
     }
 
-    // Measurement gradient on the Measurement cell (col 9)
+    // Measurement gradient on the Measurement cell (column 9)
     const measurement = answer?.measurement ?? 0;
     applyMeasurementFill(row.getCell(9), measurement);
   }
