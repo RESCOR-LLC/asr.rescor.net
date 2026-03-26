@@ -69,8 +69,8 @@ export default function GateAttestationSection({
       const data = await fetchGateAnswers(reviewId);
       setGates(data);
       return data;
-    } catch (err) {
-      setError((err as Error).message);
+    } catch (thrownError) {
+      setError((thrownError as Error).message);
       return null;
     } finally {
       setLoading(false);
@@ -101,8 +101,8 @@ export default function GateAttestationSection({
       await answerGate(reviewId, gateId, choiceIndex, localNotes[gateId] || '');
       await loadGates(); // refreshes server state without touching localChoices
       onPreFill();
-    } catch (err) {
-      setError((err as Error).message);
+    } catch (thrownError) {
+      setError((thrownError as Error).message);
     } finally {
       setSavingGate(null);
     }
@@ -116,8 +116,8 @@ export default function GateAttestationSection({
       setLocalNotes((previous) => ({ ...previous, [gateId]: '' }));
       await loadGates(); // refreshes server state without touching localChoices
       onPreFill();
-    } catch (err) {
-      setError((err as Error).message);
+    } catch (thrownError) {
+      setError((thrownError as Error).message);
     } finally {
       setSavingGate(null);
     }
