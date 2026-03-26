@@ -9,19 +9,24 @@ import { randomUUID } from 'node:crypto';
 // ────────────────────────────────────────────────────────────────────
 
 function toNumber(value) {
-  if (value === null || value === undefined) return null;
-  return typeof value === 'object' && value.toNumber ? value.toNumber() : Number(value);
+  let result = null;
+  if (value !== null && value !== undefined) {
+    result = typeof value === 'object' && value.toNumber ? value.toNumber() : Number(value);
+  }
+  return result;
 }
 
 function toPlain(node) {
-  if (!node) return null;
-  const plain = { ...node };
-  for (const [key, value] of Object.entries(plain)) {
-    if (typeof value === 'object' && value !== null && value.toNumber) {
-      plain[key] = value.toNumber();
+  let result = null;
+  if (node) {
+    result = { ...node };
+    for (const [key, value] of Object.entries(result)) {
+      if (typeof value === 'object' && value !== null && value.toNumber) {
+        result[key] = value.toNumber();
+      }
     }
   }
-  return plain;
+  return result;
 }
 
 // ────────────────────────────────────────────────────────────────────

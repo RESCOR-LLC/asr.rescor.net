@@ -142,13 +142,16 @@ async function bootstrap() {
 
   // ── Global error handler (must be last) ─────────────────────────
   application.use((error, request, response, next) => {
-    if (response.headersSent) { next(error); return; }
-    recorder.emit(9002, 'e', 'Unhandled route error', {
-      method: request.method,
-      path: request.path,
-      error: error.message,
-    });
-    response.status(500).json({ error: 'Internal server error' });
+    if (response.headersSent) {
+      next(error);
+    } else {
+      recorder.emit(9002, 'e', 'Unhandled route error', {
+        method: request.method,
+        path: request.path,
+        error: error.message,
+      });
+      response.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   application.listen(PORT, () => {
