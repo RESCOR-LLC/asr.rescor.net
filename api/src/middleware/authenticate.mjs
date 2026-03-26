@@ -21,6 +21,18 @@ import { createHash } from 'node:crypto';
 const SERVICE_ACCOUNT_KEY_PREFIX = 'sa_';
 
 // ────────────────────────────────────────────────────────────────────
+// AuthenticationError — carries HTTP status for middleware mapping
+// ────────────────────────────────────────────────────────────────────
+
+class AuthenticationError extends Error {
+  constructor(statusCode, message, reason) {
+    super(message);
+    this.statusCode = statusCode;
+    this.reason = reason;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Localhost detection — dev bypass only when accessed directly
 // ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +51,207 @@ function extractRequestMetadata(request) {
     userAgent: request.headers['user-agent'] || 'unknown',
     host: request.headers['x-forwarded-host'] || request.headers.host || 'unknown',
   };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// handleDastBypass — DAST scanner identity (CI only)
+// ────────────────────────────────────────────────────────────────────
+
+function handleDastBypass() {
+  let result = null;
+  if (process.env.DAST_MODE === 'true' && process.env.NODE_ENV === 'test') {
+    result = {
+      user: { sub: 'dast-scanner', roles: ['reader'], tenantId: 'demo', iss: 'dast', aud: 'asr-api' },
+      action: 'login',
+      reason: 'dast-bypass',
+    };
+  }
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// buildDevUser — create a copy of the synthetic dev user
+// ────────────────────────────────────────────────────────────────────
+
+async function buildDevUser(developmentUser, userStore, reason) {
+  const user = { ...developmentUser };
+  if (userStore) {
+    await userStore.ensureUser(user);
+  }
+  return { user, action: 'login', reason };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// handleNoToken — dev bypass or reject unauthenticated request
+// ────────────────────────────────────────────────────────────────────
+
+async function handleNoToken(allowDevBypass, developmentUser, userStore) {
+  if (!allowDevBypass) {
+    throw new AuthenticationError(401, 'Authentication required', 'no-token');
+  }
+  const result = await buildDevUser(developmentUser, userStore, 'dev-bypass');
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// verifyServiceAccountKey — SHA-256 hash lookup against store
+// ────────────────────────────────────────────────────────────────────
+
+async function verifyServiceAccountKey(token, serviceAccountStore) {
+  const apiKeyHash = createHash('sha256').update(token).digest('hex');
+  const account = await serviceAccountStore.findByApiKeyHash(apiKeyHash);
+
+  if (!account) {
+    throw new AuthenticationError(401, 'Invalid API key', 'invalid-service-account-key');
+  }
+
+  const user = {
+    sub: `sa:${account.serviceAccountId}`,
+    preferred_username: account.label,
+    email: null,
+    displayName: account.label,
+    roles: account.roles || [],
+    tenantId: account.tenantId,
+    iss: 'service-account',
+    aud: 'asr-api',
+  };
+
+  return { user, action: 'login', reason: 'service-account-key' };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// verifyJwtToken — validate via Entra ID JWKS, check denylist + tenant
+// ────────────────────────────────────────────────────────────────────
+
+async function verifyJwtToken(token, jwks, configuredIssuer, clientId, allowedTenants, tokenDenylist) {
+  const verifyOptions = {};
+  if (configuredIssuer) {
+    verifyOptions.issuer = configuredIssuer;
+  }
+  if (clientId) {
+    verifyOptions.audience = clientId;
+  }
+
+  const { payload } = await jwtVerify(token, jwks, verifyOptions);
+
+  if (tokenDenylist?.isDenied(payload.jti, payload.sub)) {
+    throw new AuthenticationError(401, 'Session revoked', 'token-revoked');
+  }
+
+  if (!configuredIssuer && payload.iss) {
+    validateMultiTenantIssuer(payload, allowedTenants);
+  }
+
+  const user = {
+    sub: payload.sub,
+    preferred_username: payload.preferred_username || payload.upn || payload.email || payload.sub,
+    email: payload.email || payload.upn || null,
+    displayName: payload.name || null,
+    roles: payload.roles || [],
+    tenantId: payload.tid || null,
+    iss: payload.iss,
+    aud: payload.aud,
+  };
+
+  return { user, action: 'login', reason: null };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// validateMultiTenantIssuer — check issuer format + tenant whitelist
+// ────────────────────────────────────────────────────────────────────
+
+function validateMultiTenantIssuer(payload, allowedTenants) {
+  const issuerPattern = /^https:\/\/login\.microsoftonline\.com\/([0-9a-f-]+)\/v2\.0$/;
+  const issuerMatch = issuerPattern.exec(payload.iss);
+
+  if (!issuerMatch) {
+    throw new AuthenticationError(401, 'Untrusted issuer', 'untrusted-issuer');
+  }
+  if (allowedTenants.length > 0 && !allowedTenants.includes(issuerMatch[1])) {
+    throw new AuthenticationError(403, 'Tenant not authorized', 'tenant-not-authorized');
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// hydrateUserFromStore — merge persisted roles from UserStore
+// ────────────────────────────────────────────────────────────────────
+
+async function hydrateUserFromStore(user, userStore) {
+  if (userStore) {
+    const persisted = await userStore.ensureUser(user);
+    if (persisted?.roles?.length > 0) {
+      user.roles = persisted.roles;
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// resolveAuthentication — orchestrator that delegates to auth paths
+// ────────────────────────────────────────────────────────────────────
+
+async function resolveAuthentication(request, context) {
+  const { isDevelopment, developmentUser, userStore, serviceAccountStore, jwks, issuer, clientId, allowedTenants, tokenDenylist, recorder } = context;
+  const authorizationHeader = request.headers.authorization || '';
+  const hasToken = authorizationHeader.toLowerCase().startsWith('bearer ');
+  const allowDevBypass = isDevelopment && isLocalhostRequest(request);
+
+  let result = handleDastBypass();
+
+  if (!result && !hasToken) {
+    result = await handleNoToken(allowDevBypass, developmentUser, userStore);
+  } else if (!result) {
+    const token = authorizationHeader.split(' ')[1];
+    result = await resolveTokenAuthentication(token, allowDevBypass, context);
+  }
+
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// resolveTokenAuthentication — handle sa_ keys and JWT tokens
+// ────────────────────────────────────────────────────────────────────
+
+async function resolveTokenAuthentication(token, allowDevBypass, context) {
+  const { developmentUser, userStore, serviceAccountStore, jwks, issuer, clientId, allowedTenants, tokenDenylist, recorder } = context;
+  let result = null;
+
+  if (serviceAccountStore && token.startsWith(SERVICE_ACCOUNT_KEY_PREFIX)) {
+    result = await verifyServiceAccountKey(token, serviceAccountStore);
+  } else if (!jwks && allowDevBypass) {
+    result = await buildDevUser(developmentUser, userStore, 'dev-bypass-no-jwks');
+  } else if (!jwks) {
+    throw new AuthenticationError(401, 'Authentication not configured', 'jwks-not-configured');
+  } else {
+    result = await resolveJwtAuthentication(token, allowDevBypass, context);
+  }
+
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// resolveJwtAuthentication — verify JWT with dev fallback on failure
+// ────────────────────────────────────────────────────────────────────
+
+async function resolveJwtAuthentication(token, allowDevBypass, context) {
+  const { developmentUser, userStore, jwks, issuer, clientId, allowedTenants, tokenDenylist, recorder } = context;
+  let result = null;
+
+  try {
+    result = await verifyJwtToken(token, jwks, issuer, clientId, allowedTenants, tokenDenylist);
+    await hydrateUserFromStore(result.user, userStore);
+  } catch (error) {
+    if (error instanceof AuthenticationError) {
+      throw error;
+    }
+    if (allowDevBypass) {
+      recorder?.emit(9017, 'd', 'Token validation failed in dev mode, using synthetic user', { error: error.message });
+      result = await buildDevUser(developmentUser, userStore, 'dev-bypass-token-invalid');
+    } else {
+      throw new AuthenticationError(401, 'Invalid or expired token', error.message);
+    }
+  }
+
+  return result;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -71,174 +284,42 @@ export function createAuthenticationMiddleware({ isDevelopment = false, tenantId
 
   // Fire-and-forget auth event logging (non-blocking)
   function logAuthEvent(sub, action, outcome, request, reason) {
-    if (!authEventStore) return;
-    const metadata = extractRequestMetadata(request);
-    const tenantId = request.user?.tenantId || null;
-    authEventStore.logEvent({ sub, tenantId, action, ...metadata, outcome, reason }).catch((error) => {
-      recorder?.emit(9016, 'w', 'Failed to log auth event', { error: error.message });
-    });
+    if (authEventStore) {
+      const metadata = extractRequestMetadata(request);
+      const eventTenantId = request.user?.tenantId || null;
+      authEventStore.logEvent({ sub, tenantId: eventTenantId, action, ...metadata, outcome, reason }).catch((error) => {
+        recorder?.emit(9016, 'w', 'Failed to log auth event', { error: error.message });
+      });
+    }
   }
 
   let jwks = null;
   let issuer = null;
 
   if (tenantId) {
-    // Single-tenant — validate against one specific issuer
     const jwksUri = `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`;
     jwks = createRemoteJWKSet(new URL(jwksUri));
     issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
   } else if (clientId) {
-    // Multi-tenant — use the common JWKS endpoint, validate issuer per-request
     const jwksUri = 'https://login.microsoftonline.com/organizations/discovery/v2.0/keys';
     jwks = createRemoteJWKSet(new URL(jwksUri));
-    // issuer stays null — validated manually after verify
   }
 
+  const context = { isDevelopment, developmentUser, userStore, serviceAccountStore, jwks, issuer, clientId, allowedTenants, tokenDenylist, recorder };
+
   return async function authenticate(request, response, next) {
-    const authorizationHeader = request.headers.authorization || '';
-    const hasToken = authorizationHeader.toLowerCase().startsWith('bearer ');
-
-    // Dev bypass is only allowed from localhost — proxied requests
-    // (e.g. ngrok) must authenticate even in development mode.
-    const allowDevBypass = isDevelopment && isLocalhostRequest(request);
-
-    // ── DAST scanner bypass (CI only — requires DAST_MODE + NODE_ENV=test) ──
-    if (process.env.DAST_MODE === 'true' && process.env.NODE_ENV === 'test') {
-      request.user = { sub: 'dast-scanner', roles: ['reader'], tenantId: 'demo', iss: 'dast', aud: 'asr-api' };
-      next();
-      return;
-    }
-
-    // ── No token present ──────────────────────────────────────────
-    if (!hasToken) {
-      if (allowDevBypass) {
-        request.user = { ...developmentUser };
-        if (userStore) { await userStore.ensureUser(request.user); }
-        logAuthEvent(developmentUser.sub, 'login', 'success', request, 'dev-bypass');
-        next();
-        return;
-      }
-      logAuthEvent('anonymous', 'login_failed', 'failure', request, 'no-token');
-      response.status(401).json({ error: 'Authentication required' });
-      return;
-    }
-
-    // ── Service account API key (sa_ prefix) ────────────────────────
-    const token = authorizationHeader.split(' ')[1];
-
-    if (serviceAccountStore && token.startsWith(SERVICE_ACCOUNT_KEY_PREFIX)) {
-      try {
-        const apiKeyHash = createHash('sha256').update(token).digest('hex');
-        const account = await serviceAccountStore.findByApiKeyHash(apiKeyHash);
-
-        if (!account) {
-          logAuthEvent('anonymous', 'login_failed', 'failure', request, 'invalid-service-account-key');
-          response.status(401).json({ error: 'Invalid API key' });
-          return;
-        }
-
-        request.user = {
-          sub: `sa:${account.serviceAccountId}`,
-          preferred_username: account.label,
-          email: null,
-          displayName: account.label,
-          roles: account.roles || [],
-          tenantId: account.tenantId,
-          iss: 'service-account',
-          aud: 'asr-api',
-        };
-
-        logAuthEvent(request.user.sub, 'login', 'success', request, 'service-account-key');
-        next();
-        return;
-      } catch (error) {
-        logAuthEvent('anonymous', 'login_failed', 'failure', request, `service-account-error: ${error.message}`);
-        response.status(500).json({ error: 'Authentication failed' });
-        return;
-      }
-    }
-
-    // ── JWT token — validate via Entra ID JWKS ──────────────────────
-    if (!jwks) {
-      if (allowDevBypass) {
-        // JWKS not configured but token was sent — use dev user
-        request.user = { ...developmentUser };
-        if (userStore) { await userStore.ensureUser(request.user); }
-        logAuthEvent(developmentUser.sub, 'login', 'success', request, 'dev-bypass-no-jwks');
-        next();
-        return;
-      }
-      logAuthEvent('anonymous', 'login_failed', 'failure', request, 'jwks-not-configured');
-      response.status(401).json({ error: 'Authentication not configured' });
-      return;
-    }
-
     try {
-      const verifyOptions = {};
-      if (issuer) {
-        verifyOptions.issuer = issuer;
-      }
-      if (clientId) {
-        verifyOptions.audience = clientId;
-      }
-
-      const { payload } = await jwtVerify(token, jwks, verifyOptions);
-
-      // Server-side session revocation check
-      if (tokenDenylist?.isDenied(payload.jti, payload.sub)) {
-        logAuthEvent(payload.sub || 'unknown', 'login_failed', 'failure', request, 'token-revoked');
-        response.status(401).json({ error: 'Session revoked' });
-        return;
-      }
-
-      // Multi-tenant: validate issuer format + tenant whitelist
-      if (!issuer && payload.iss) {
-        const issuerPattern = /^https:\/\/login\.microsoftonline\.com\/([0-9a-f-]+)\/v2\.0$/;
-        const issuerMatch = issuerPattern.exec(payload.iss);
-        if (!issuerMatch) {
-          logAuthEvent(payload.sub || 'unknown', 'login_failed', 'failure', request, 'untrusted-issuer');
-          response.status(401).json({ error: 'Untrusted issuer' });
-          return;
-        }
-        if (allowedTenants.length > 0 && !allowedTenants.includes(issuerMatch[1])) {
-          logAuthEvent(payload.sub || 'unknown', 'login_failed', 'failure', request, 'tenant-not-authorized');
-          response.status(403).json({ error: 'Tenant not authorized' });
-          return;
-        }
-      }
-
-      request.user = {
-        sub: payload.sub,
-        preferred_username: payload.preferred_username || payload.upn || payload.email || payload.sub,
-        email: payload.email || payload.upn || null,
-        displayName: payload.name || null,
-        roles: payload.roles || [],
-        tenantId: payload.tid || null,
-        iss: payload.iss,
-        aud: payload.aud,
-      };
-
-      if (userStore) {
-        const persisted = await userStore.ensureUser(request.user);
-        if (persisted && persisted.roles && persisted.roles.length > 0) {
-          request.user.roles = persisted.roles;
-        }
-      }
-
-      logAuthEvent(request.user.sub, 'login', 'success', request, null);
+      const result = await resolveAuthentication(request, context);
+      request.user = result.user;
+      logAuthEvent(result.user.sub, result.action, 'success', request, result.reason);
       next();
     } catch (error) {
-      if (allowDevBypass) {
-        // Token invalid in dev — fall back to synthetic user
-        recorder?.emit(9017, 'd', 'Token validation failed in dev mode, using synthetic user', { error: error.message });
-        request.user = { ...developmentUser };
-        if (userStore) { await userStore.ensureUser(request.user); }
-        logAuthEvent(developmentUser.sub, 'login', 'success', request, 'dev-bypass-token-invalid');
-        next();
-        return;
-      }
-      logAuthEvent('anonymous', 'login_failed', 'failure', request, error.message);
-      response.status(401).json({ error: 'Invalid or expired token' });
+      const statusCode = error instanceof AuthenticationError ? error.statusCode : 500;
+      const message = error instanceof AuthenticationError ? error.message : 'Authentication failed';
+      const reason = error instanceof AuthenticationError ? error.reason : error.message;
+      const sub = request.user?.sub || 'anonymous';
+      logAuthEvent(sub, 'login_failed', 'failure', request, reason);
+      response.status(statusCode).json({ error: message });
     }
   };
 }
